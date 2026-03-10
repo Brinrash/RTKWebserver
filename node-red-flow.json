@@ -1,0 +1,56 @@
+[
+  {
+    "id": "f1f9e95f6dbe4f5f",
+    "type": "tab",
+    "label": "Manipulator API",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "dc7934a0f55a5f66",
+    "type": "http in",
+    "z": "f1f9e95f6dbe4f5f",
+    "name": "Manipulator command",
+    "url": "/manipulator/command",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 180,
+    "y": 120,
+    "wires": [
+      [
+        "5af89fabf253555f"
+      ]
+    ]
+  },
+  {
+    "id": "5af89fabf253555f",
+    "type": "function",
+    "z": "f1f9e95f6dbe4f5f",
+    "name": "Build response",
+    "func": "const payload = msg.payload || {};\nmsg.payload = {\n    accepted: true,\n    manipulator_id: payload.manipulator_id,\n    command: payload.command,\n    received_at: new Date().toISOString()\n};\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 390,
+    "y": 120,
+    "wires": [
+      [
+        "8fe08e2c89518b4d"
+      ]
+    ]
+  },
+  {
+    "id": "8fe08e2c89518b4d",
+    "type": "http response",
+    "z": "f1f9e95f6dbe4f5f",
+    "name": "Return 200",
+    "statusCode": "",
+    "headers": {},
+    "x": 590,
+    "y": 120,
+    "wires": []
+  }
+]
