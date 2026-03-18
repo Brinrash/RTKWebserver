@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Industrial Lamp Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Industrial Control Dashboard</h1>
+    <p class="hint">UDP Lamp: 192.168.254.101:8888</p>
+
+    <div id="lamps"></div>
+    <div class="buttons">
+
+    </div>
+
+
+
+    <section class="card">
+      <h2>Lamp Segments (real-time)</h2>
+      <div class="segments">
+        <div class="segment" id="seg-red">RED</div>
+        <div class="segment" id="seg-blue">BLUE</div>
+        <div class="segment" id="seg-green">GREEN</div>
+        <div class="segment" id="seg-yellow">YELLOW</div>
+      </div>
+    </section>
+
+
+
+    <section class="card">
+      <h2>Commands</h2>
+      <div class="buttons">
+        <button data-cmd="red">RED</button>
+        <button data-cmd="yellow">YELLOW</button>
+        <button data-cmd="green">GREEN</button>
+        <button data-cmd="blue">BLUE</button>
+        <button data-cmd="off" class="off">OFF</button>
+      </div>
+      <p id="action-result"></p>
+    </section>
+
+    <section class="card">
+      <h2>Commands</h2>
+      <div class="buttons">
+        <button onclick="runProgram('blink_red')">Blink Red</button>
+        <button onclick="runProgram('traffic')">Traffic</button>
+        <button onclick="runProgram('all_cycle')">Cycle</button>
+        <button onclick="stopProgram()">STOP</button>
+      </div>
+      <p id="action-result"></p>
+    </section>
+
+  <section class="card">
+      <h3>Custom Program</h3>
+    <textarea id="program" rows="10" cols="40">
+    [
+      {"cmd": "RED", "delay": 1},
+      {"cmd": "GREEN", "delay": 1}
+    ]
+    </textarea>
+
+    <br><br>
+
+    <button onclick="runCustom()">Run Program</button>
+    <button onclick="stopProgram()">STOP</button>
+  </section>
+
+  <section class="card">
+         <h3>Program Builder</h3>
+    <select id="cmd">
+      <option value="RED">RED</option>
+      <option value="BLUE">BLUE</option>
+      <option value="GREEN">GREEN</option>
+      <option value="YELLOW">YELLOW</option>
+      <option value="OFF">OFF</option>
+    </select>
+
+    <input type="number" id="delay" value="1" step="0.1"> сек
+
+    <button onclick="addStep()">Add Step</button>
+    <button onclick="clearProgram()">Clear</button>
+
+    <pre id="program_view"></pre>
+
+    <button onclick="runBuilt()">Run</button>
+    <button onclick="runLoop()">Run Loop</button>
+    <button onclick="stopProgram()">STOP</button>
+  </section>
+
+
+    <section class="card">
+      <h3>System Logs</h3>
+
+        <div class="log-controls">
+
+       <select id="logFilter">
+        <option value="ALL">ALL</option>
+        <option value="INFO">INFO</option>
+        <option value="DEBUG">DEBUG</option>
+        <option value="ERROR">ERROR</option>
+       </select>
+
+        <button onclick="clearLogs()">Clear</button>
+        </div>
+
+        <div id="log-panel" class="log-panel"></div>
+    </section>
+
+  </main>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
