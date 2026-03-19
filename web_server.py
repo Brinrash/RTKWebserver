@@ -1,232 +1,271 @@
-"""Flask + SocketIO web control platform for UDP lamp."""
+"""SCADA-style Flask + SocketIO application for UDP lamp control."""
 
 from __future__ import annotations
+
+from threading import Lock
+from typing import Iterable
 
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
-from system.config import LOG_FILE, MAX_LOG_LINES, LAMPS
-from system.lamp_controller import LampController
+from system.config import (
+    APP_HOST,
+    APP_PORT,
+    DEBUG_LOG_PATH,
+    DEFAULT_LAMPS,
+    DEFAULT_PROGRAMS,
+    INFO_LOG_PATH,
+    ERROR_LOG_PATH,
+    MAX_LOG_LINES,
+    SECRET_KEY,
+    SOCKET_ASYNC_MODE,
+)
+from system.lamp_controller import LampController, LampDefinition
 from system.lamp_monitor import LampMonitor
 from system.logger import EventLogger
 from system.program_runner import ProgramRunner
 
-import webbrowser
-import threading
 
-# -------------------- INIT --------------------
+class LampSystem:
+    def __init__(self, socketio: SocketIO, logger: EventLogger) -> None:
+        self.socketio = socketio
+        self.logger = logger
+        self._lock = Lock()
+        self.controllers: dict[str, LampController] = {}
+        self.runners: dict[str, ProgramRunner] = {}
+        self.programs = dict(DEFAULT_PROGRAMS)
+        self.monitor = LampMonitor(logger=logger, on_packet=self._broadcast_log)
+        self._create_runner("ALL", self._all_controllers)
+
+
+        for name, cfg in DEFAULT_LAMPS.items():
+            self.add_lamp(name=name, ip=cfg["ip"], port=int(cfg["port"]), created_from_ui=False)
+
+    def start(self) -> None:
+        self.monitor.start()
+
+    def _emit(self, event: str, payload: dict[str, object]) -> None:
+        self.socketio.start_background_task(self.socketio.emit, event, payload)
+
+    def _broadcast_log(self, line: str) -> None:
+        self._emit("log_line", {"line": line})
+
+    def _broadcast_inventory(self) -> None:
+        self._emit(
+            "inventory",
+            {
+                "lamps": self.list_lamps(),
+                "states": self.get_states(),
+            },
+        )
+
+    def _broadcast_state(self, lamp_name: str, state: dict[str, object]) -> None:
+        self._emit("lamp_state", {"lamp": lamp_name, "state": state})
+
+    def _all_controllers(self) -> Iterable[LampController]:
+        with self._lock:
+            return list(self.controllers.values())
+
+    def _single_controller_provider(self, lamp_name: str):
+        def provider() -> Iterable[LampController]:
+            with self._lock:
+                controller = self.controllers.get(lamp_name)
+                return [controller] if controller else []
+
+        return provider
+
+    def _create_runner(self, target_name: str, provider) -> ProgramRunner:
+        runner = ProgramRunner(target_name=target_name, controller_provider=provider, logger=self.logger)
+        self.runners[target_name] = runner
+        return runner
+
+    def add_lamp(self, name: str, ip: str, port: int, created_from_ui: bool = True) -> dict[str, object]:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Имя лампы обязательно")
+        if normalized_name.upper() == "ALL":
+            raise ValueError("Имя ALL зарезервировано")
+
+        with self._lock:
+            if normalized_name in self.controllers:
+                raise ValueError(f"Лампа {normalized_name} уже существует")
+            if any(controller.ip == ip for controller in self.controllers.values()):
+                raise ValueError(f"IP {ip} уже привязан к другой лампе")
+
+            definition = LampDefinition(name=normalized_name, ip=ip.strip(), port=int(port), created_from_ui=created_from_ui)
+            controller = LampController(definition=definition, logger=self.logger, on_state_change=self._broadcast_state)
+            self.controllers[normalized_name] = controller
+            self.monitor.register(controller)
+            self._create_runner(normalized_name, self._single_controller_provider(normalized_name))
+
+        self.logger.info(f"Лампа добавлена: {normalized_name} ({ip}:{port})")
+        self._broadcast_inventory()
+        return controller.get_snapshot()
+
+    def list_lamps(self) -> list[dict[str, object]]:
+        with self._lock:
+            lamps = [controller.get_snapshot() for controller in self.controllers.values()]
+        return sorted(lamps, key=lambda lamp: str(lamp["name"]))
+
+    def get_states(self) -> dict[str, dict[str, object]]:
+        with self._lock:
+            return {name: controller.get_state() for name, controller in self.controllers.items()}
+
+    def get_controller(self, lamp_name: str) -> LampController:
+        with self._lock:
+            controller = self.controllers.get(lamp_name)
+        if controller is None:
+            raise KeyError(lamp_name)
+        return controller
+
+    def send_command(self, lamp_name: str, command: str) -> None:
+        if lamp_name == "ALL":
+            for controller in self._all_controllers():
+                controller.send_command(command)
+            return
+        self.get_controller(lamp_name).send_command(command)
+
+    def run_program(self, lamp_name: str, program: dict[str, object] | list[dict[str, object]]) -> None:
+        runner = self.runners.get(lamp_name)
+        if runner is None:
+            if lamp_name == "ALL":
+                runner = self._create_runner("ALL", self._all_controllers)
+            else:
+                self.get_controller(lamp_name)
+                runner = self._create_runner(lamp_name, self._single_controller_provider(lamp_name))
+        runner.run_program(program)
+
+    def stop_program(self, lamp_name: str) -> None:
+        runner = self.runners.get(lamp_name)
+        if runner:
+            runner.stop()
+
+    def run_phase(self, lamp_name: str, phase_table: dict[str, dict[str, object]], repeat: bool = False, delay: float = 0.5) -> None:
+        runner = self.runners.get(lamp_name)
+        if runner is None:
+            raise KeyError(lamp_name)
+        runner.run_phase_table(phase_table=phase_table, repeat=repeat, delay=delay)
+
+    def bootstrap_payload(self) -> dict[str, object]:
+        return {
+            "lamps": self.list_lamps(),
+            "states": self.get_states(),
+            "programs": self.programs,
+            "logs": self.logger.tail(MAX_LOG_LINES),
+        }
+
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.config["SECRET_KEY"] = "lamp-dashboard-secret"
+app.config["SECRET_KEY"] = SECRET_KEY
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode=SOCKET_ASYNC_MODE)
+logger = EventLogger(INFO_LOG_PATH, DEBUG_LOG_PATH, ERROR_LOG_PATH, max_buffer_lines=MAX_LOG_LINES)
+system = LampSystem(socketio=socketio, logger=logger)
+logger.set_callback(system._broadcast_log)
+system.start()
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
-logger = EventLogger(LOG_FILE, console_output=False)
-
-# -------------------- SOCKET EMIT --------------------
-
-def emit_lamp_state(name: str, state: dict) -> None:
-    socketio.start_background_task(
-        socketio.emit,
-        "lamp_state",
-        {
-            "lamp": name,
-            "state": state
-        }
-    )
-
-
-def emit_log_line(line: str) -> None:
-    socketio.start_background_task(
-        socketio.emit,
-        "lamp_log",
-        {"line": line}
-    )
-
-# -------------------- CONTROLLERS --------------------
-
-lamp_controllers: dict[str, LampController] = {}
-
-for name, cfg in LAMPS.items():
-    lamp_controllers[name] = LampController(
-        name=name,
-        ip=cfg["ip"],
-        port=cfg["port"],
-        logger=logger,
-        on_state_change=emit_lamp_state
-    )
-
-# -------------------- MONITORS (MULTI DEVICE) --------------------
-
-lamp_monitor = LampMonitor(
-    lamp_controllers,
-    logger,
-    on_response=emit_log_line
-)
-
-# -------------------- PROGRAM MANAGER --------------------
-
-program_runners: dict[str, ProgramRunner] = {}
-
-def get_runner(lamp_name: str) -> ProgramRunner:
-    if lamp_name not in program_runners:
-        program_runners[lamp_name] = ProgramRunner(lamp_controllers[lamp_name])
-    return program_runners[lamp_name]
-
-# -------------------- PROGRAMS --------------------
-
-PROGRAMS = {
-    "blink_red": [
-        {"cmd": "RED", "delay": 0.5},
-        {"cmd": "OFF", "delay": 0.5},
-    ],
-    "traffic": [
-        {"cmd": "RED", "delay": 1},
-        {"cmd": "GREEN", "delay": 1},
-        {"cmd": "YELLOW", "delay": 1},
-    ],
-    "all_cycle": [
-        {"cmd": "RED", "delay": 0.3},
-        {"cmd": "BLUE", "delay": 0.3},
-        {"cmd": "GREEN", "delay": 0.3},
-        {"cmd": "YELLOW", "delay": 0.3},
-    ]
-}
-
-# -------------------- ROUTES --------------------
 
 @app.get("/")
 def dashboard() -> str:
     return render_template("dashboard.html")
 
 
-@app.get("/api/lamp/state")
-def lamp_state():
-    return jsonify({
-        name: ctrl.get_state()
-        for name, ctrl in lamp_controllers.items()
-    }), 200
+@app.get("/api/bootstrap")
+def api_bootstrap():
+    return jsonify(system.bootstrap_payload())
 
 
-@app.post("/api/lamp/<lamp>/<command>")
-def send_lamp_command(lamp: str, command: str):
-
-    if lamp not in lamp_controllers:
-        return {"error": "unknown lamp"}, 404
-
-    controller = lamp_controllers[lamp]
-    controller.send_command(command)
-
-    return {"ok": True, "state": controller.get_state()}
+@app.get("/api/lamps")
+def api_lamps():
+    return jsonify({"lamps": system.list_lamps(), "states": system.get_states()})
 
 
-@app.post("/api/lamp/all/<command>")
-def send_all(command: str):
-    for ctrl in lamp_controllers.values():
-        ctrl.send_command(command)
-    return {"ok": True}
+@app.post("/api/lamps")
+def api_add_lamp():
+    payload = request.get_json(force=True, silent=False) or {}
+    lamp = system.add_lamp(
+        name=str(payload.get("name", "")),
+        ip=str(payload.get("ip", "")).strip(),
+        port=int(payload.get("port", 0)),
+        created_from_ui=True,
+    )
+    return jsonify({"ok": True, "lamp": lamp}), 201
 
+
+@app.post("/api/lamp/<lamp_name>/command/<command>")
+def api_send_command(lamp_name: str, command: str):
+    system.send_command(lamp_name, command)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/program/<lamp_name>/<program_name>")
+def api_run_program(lamp_name: str, program_name: str):
+    if program_name not in system.programs:
+        return jsonify({"error": "Неизвестная программа"}), 404
+    system.run_program(lamp_name, system.programs[program_name])
+    return jsonify({"ok": True})
+
+
+@app.post("/api/program/custom/<lamp_name>")
+def api_run_custom_program(lamp_name: str):
+    payload = request.get_json(force=True, silent=False)
+    system.run_program(lamp_name, payload)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/program/phase/<lamp_name>")
+def api_run_phase(lamp_name: str):
+    payload = request.get_json(force=True, silent=False) or {}
+    phase_table = payload.get("phases", payload)
+    repeat = bool(payload.get("repeat", False)) if isinstance(payload, dict) else False
+    delay = float(payload.get("delay", 0.5)) if isinstance(payload, dict) else 0.5
+    system.run_phase(lamp_name, phase_table=phase_table, repeat=repeat, delay=delay)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/program/stop/<lamp_name>")
+def api_stop_program(lamp_name: str):
+    system.stop_program(lamp_name)
+    return jsonify({"ok": True})
+
+@app.post("/api/logs/debug/<mode>")
+def api_toggle_debug(mode: str):
+    if mode.lower() == "on":
+        logger.debug_enabled = True
+        logger.info("DEBUG включен")
+    elif mode.lower() == "off":
+        logger.debug_enabled = False
+        logger.info("DEBUG выключен")
+    else:
+        return jsonify({"error": "mode должен быть on/off"}), 400
+
+    return jsonify({"ok": True, "debug": logger.debug_enabled})
 
 @app.get("/api/logs")
-def get_logs():
-    return jsonify({"lines": logger.tail(MAX_LOG_LINES)}), 200
-
-# -------------------- PROGRAM API --------------------
-
-@app.post("/api/program/<lamp>/<name>")
-def run_program(lamp, name):
-
-    if lamp not in lamp_controllers:
-        return {"error": "unknown lamp"}, 404
-
-    if name not in PROGRAMS:
-        return {"error": "unknown program"}, 404
-
-    runner = get_runner(lamp)
-    runner.run_program(PROGRAMS[name])
-
-    return {"ok": True}
+def api_logs():
+    level = request.args.get("level")
+    return jsonify({"lines": logger.tail(MAX_LOG_LINES, level=level)})
 
 
-@app.post("/api/program/stop/<lamp>")
-def stop_program(lamp):
-
-    if lamp not in program_runners:
-        return {"ok": True}
-
-    program_runners[lamp].stop()
-    return {"ok": True}
+@app.errorhandler(ValueError)
+def handle_value_error(error: ValueError):
+    line = logger.error(str(error))
+    system._broadcast_log(line)
+    return jsonify({"error": str(error)}), 400
 
 
-@app.post("/api/program/custom/<lamp>")
-def run_custom_program(lamp):
+@app.errorhandler(KeyError)
+def handle_key_error(error: KeyError):
+    lamp_name = str(error).strip("'")
+    message = f"Лампа {lamp_name} не найдена"
+    line = logger.error(message)
+    system._broadcast_log(line)
+    return jsonify({"error": message}), 404
 
-    if lamp not in lamp_controllers:
-        return {"error": "unknown lamp"}, 404
-
-    try:
-        program = request.json
-
-        if isinstance(program, list):
-            steps = program
-
-        elif isinstance(program, dict):
-            steps = program.get("steps")
-
-            if not isinstance(steps, list):
-                return {"error": "invalid steps"}, 400
-
-        else:
-            return {"error": "invalid format"}, 400
-
-        for step in steps:
-            if "cmd" not in step:
-                return {"error": "missing cmd"}, 400
-
-        runner = get_runner(lamp)
-        runner.run_program(program)
-
-        return {"ok": True}
-
-    except Exception as e:
-        return {"error": str(e)}, 500
-
-
-@app.post("/api/program/phase/<lamp>")
-def run_phase(lamp):
-
-    if lamp not in lamp_controllers:
-        return {"error": "unknown lamp"}, 404
-
-    table = request.json
-
-    runner = get_runner(lamp)
-    runner.run_phase_table(table)
-
-    return {"ok": True}
-
-# -------------------- SOCKET --------------------
 
 @socketio.on("connect")
-def on_connect():
-    socketio.emit("lamp_state_init", {
-        name: ctrl.get_state()
-        for name, ctrl in lamp_controllers.items()
-    })
-    socketio.emit("lamp_logs_snapshot", {
-        "lines": logger.tail(MAX_LOG_LINES)
-    })
+def handle_connect():
+    socketio.emit("bootstrap", system.bootstrap_payload())
 
-# -------------------- AUTO OPEN --------------------
-
-def open_browser():
-    webbrowser.open("http://localhost:8000")
-
-# -------------------- MAIN --------------------
 
 if __name__ == "__main__":
-
-    lamp_monitor.start()
-
-    threading.Timer(2, open_browser).start()
-
-    socketio.run(app, host="0.0.0.0", port=8000)
+    socketio.run(app, host=APP_HOST, port=APP_PORT)
