@@ -1,342 +1,431 @@
 const socket = io();
 
-const actionResult = document.getElementById('action-result');
-const logPanel = document.getElementById('log-panel');
-let lampList = [];
-let allLogs = [];
-let selectedLamp = null;
-let allStates = {}; // состояние всех ламп
-
-// -------------------- SEGMENTS --------------------
-
-const segmentElements = {
-  red: document.getElementById('seg-red'),
-  blue: document.getElementById('seg-blue'),
-  green: document.getElementById('seg-green'),
-  yellow: document.getElementById('seg-yellow')
+const state = {
+  selectedLamp: null,
+  lamps: [],
+  lampMap: {},
+  states: {},
+  logs: [],
+  builtProgram: [],
+  programs: {}
 };
 
-function renderState(state) {
-  Object.entries(segmentElements).forEach(([key, el]) => {
-    el.classList.toggle('active', !!state[key]);
+const dom = {
+  lampSelector: document.getElementById('lamp-selector'),
+  selectedLampLabel: document.getElementById('selected-lamp-label'),
+  actionResult: document.getElementById('action-result'),
+  connectionStatus: document.getElementById('connection-status'),
+  stateSource: document.getElementById('state-source'),
+  stateOnline: document.getElementById('state-online'),
+  stateLastSeen: document.getElementById('state-last-seen'),
+  builtinPrograms: document.getElementById('builtin-programs'),
+  customProgram: document.getElementById('custom-program'),
+  phaseProgram: document.getElementById('phase-program'),
+  addLampForm: document.getElementById('add-lamp-form'),
+  logPanel: document.getElementById('log-panel'),
+  logFilter: document.getElementById('log-filter'),
+  builderCommand: document.getElementById('builder-command'),
+  builderDelay: document.getElementById('builder-delay'),
+  builderPreview: document.getElementById('builder-preview'),
+  segments: {
+    red: document.getElementById('seg-red'),
+    blue: document.getElementById('seg-blue'),
+    green: document.getElementById('seg-green'),
+    yellow: document.getElementById('seg-yellow')
+  }
+};
+
+const STORAGE_KEYS = {
+  builtProgram: 'scada_built_program',
+  customProgram: 'scada_custom_program',
+  phaseProgram: 'scada_phase_program'
+};
+
+function bootstrapApp() {
+  restoreLocalState();
+  bindEvents();
+  fetchBootstrap();
+}
+
+function bindEvents() {
+  document.querySelectorAll('[data-command]').forEach((button) => {
+    button.addEventListener('click', () => sendCommand(button.dataset.command));
+  });
+
+  document.getElementById('run-custom-program').addEventListener('click', runCustomProgram);
+  document.getElementById('run-phase-program').addEventListener('click', runPhaseProgram);
+  document.getElementById('stop-program').addEventListener('click', () => stopProgram());
+  document.getElementById('builder-add-step').addEventListener('click', addBuilderStep);
+  document.getElementById('builder-clear').addEventListener('click', clearBuilder);
+  document.getElementById('builder-run').addEventListener('click', () => runBuiltProgram(false));
+  document.getElementById('builder-run-repeat').addEventListener('click', () => runBuiltProgram(true));
+  document.getElementById('clear-log-view').addEventListener('click', () => {
+    state.logs = [];
+    renderLogs();
+  });
+  dom.logFilter.addEventListener('change', renderLogs);
+  dom.addLampForm.addEventListener('submit', submitAddLamp);
+  dom.customProgram.addEventListener('input', () => localStorage.setItem(STORAGE_KEYS.customProgram, dom.customProgram.value));
+  dom.phaseProgram.addEventListener('input', () => localStorage.setItem(STORAGE_KEYS.phaseProgram, dom.phaseProgram.value));
+
+  socket.on('connect', () => {
+    dom.connectionStatus.textContent = 'Socket: подключено';
+    dom.connectionStatus.classList.add('online');
+    dom.connectionStatus.classList.remove('offline');
+  });
+
+  socket.on('disconnect', () => {
+    dom.connectionStatus.textContent = 'Socket: отключено';
+    dom.connectionStatus.classList.remove('online');
+    dom.connectionStatus.classList.add('offline');
+  });
+
+  socket.on('bootstrap', handleBootstrap);
+  socket.on('inventory', handleInventory);
+  socket.on('lamp_state', handleLampState);
+  socket.on('log_line', handleLogLine);
+}
+
+async function fetchBootstrap() {
+  const response = await fetch('/api/bootstrap');
+  const payload = await response.json();
+  handleBootstrap(payload);
+}
+
+function handleBootstrap(payload) {
+  state.programs = payload.programs || {};
+  state.logs = payload.logs || [];
+  applyInventory(payload.lamps || [], payload.states || {});
+  renderPrograms();
+  renderLogs();
+}
+
+function handleInventory(payload) {
+  applyInventory(payload.lamps || [], payload.states || {});
+}
+
+function applyInventory(lamps, states) {
+  state.lamps = lamps;
+  state.lampMap = Object.fromEntries(lamps.map((lamp) => [lamp.name, lamp]));
+  state.states = { ...state.states, ...states };
+
+  const validSelection = state.selectedLamp === 'ALL' || (state.selectedLamp && state.lampMap[state.selectedLamp]);
+ if (!state.selectedLamp && lamps.length) {
+  state.selectedLamp = lamps[0].name;
+  }
+
+  renderLampSelector();
+  renderSelectedLampState();
+}
+
+function handleLampState(payload) {
+  state.states[payload.lamp] = payload.state;
+
+  // НЕ трогаем selector!
+  if (state.selectedLamp === payload.lamp || state.selectedLamp === 'ALL') {
+    renderSelectedLampState();
+  }
+}
+
+function handleLogLine(payload) {
+  if (!payload?.line) return;
+  state.logs.push(payload.line);
+  if (state.logs.length > 500) {
+    state.logs = state.logs.slice(-500);
+  }
+  renderLogs();
+}
+
+function renderLampSelector() {
+  dom.lampSelector.innerHTML = '';
+  const allButton = createLampButton('ALL', { name: 'ALL', state: aggregateAllState() });
+  dom.lampSelector.appendChild(allButton);
+
+  state.lamps.forEach((lamp) => {
+    dom.lampSelector.appendChild(createLampButton(lamp.name, lamp));
   });
 }
 
-// -------------------- LAMP SELECTION --------------------
-
-function setLamp(name) {
-  selectedLamp = name;
-  highlightSelected();
-
-    if (name === "ALL") {
-    // НЕ сбрасываем состояние
-     return;
-    }
-
-  if (allStates[name]) {
-    renderState(allStates[name]);
-  }
-}
-
-function renderLamps(states) {
-  const container = document.getElementById("lamps");
-  container.innerHTML = "";
-
-  // 🔥 ALL как карточка
-  const allLamp = document.createElement("div");
-  allLamp.className = "card";
-  allLamp.innerHTML = `<b>ALL</b>`;
-  allLamp.onclick = () => setLamp("ALL");
-  allLamp.id = "lamp-ALL";
-
-  container.appendChild(allLamp);
-
-  // обычные лампы
-  Object.keys(states).forEach(name => {
-    const lamp = document.createElement("div");
-    lamp.className = "card";
-    lamp.innerHTML = `<b>${name}</b>`;
-    lamp.onclick = () => setLamp(name);
-    lamp.id = `lamp-${name}`;
-
-    container.appendChild(lamp);
-  });
-}
-
-function highlightSelected() {
-  document.querySelectorAll("[id^='lamp-']").forEach(el => {
-    el.style.border = "1px solid #334155";
-  });
-
-  if (selectedLamp) {
-    const el = document.getElementById(`lamp-${selectedLamp}`);
-    if (el) {
-      el.style.border = "2px solid #22c55e";
-    }
-  }
-}
-
-// -------------------- COMMANDS --------------------
-
-function send(cmd) {
-  if (!selectedLamp) {
-    alert("Select lamp first");
-    return;
+function createLampButton(name, lamp) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'lamp-button';
+  if (state.selectedLamp === name) {
+    button.classList.add('selected');
   }
 
-  if (selectedLamp === "ALL") {
-    fetch(`/api/lamp/all/${cmd}`, { method: "POST" });
-    return;
+  const lampState = name === 'ALL' ? lamp.state : state.states[name] || lamp.state;
+  if (lampState?.online) {
+    button.classList.add('online');
+  } else {
+    button.classList.add('offline');
   }
 
-  fetch(`/api/lamp/${selectedLamp}/${cmd}`, { method: "POST" });
-}
+  button.innerHTML = `
+    <span class="lamp-name">${name}</span>
+    <span class="lamp-ip">${name === 'ALL' ? 'Все лампы' : `${lamp.ip}:${lamp.port}`}</span>
+  `;
+  button.addEventListener('click', () => {
+  state.selectedLamp = name;
 
-// кнопки
-document.querySelectorAll("[data-cmd]").forEach(btn => {
-  btn.onclick = () => send(btn.dataset.cmd.toUpperCase());
+  localStorage.setItem("selectedLamp", name); // 👈 добавить
+
+  renderLampSelector();
+  renderSelectedLampState();
 });
-
-// -------------------- PROGRAMS --------------------
-
-function runProgram(name) {
-  if (!selectedLamp) return;
-
-  if (selectedLamp === "ALL") {
-    lampList.forEach(lamp => {
-      fetch(`/api/program/${lamp}/${name}`, { method: "POST" });
-    });
-  } else {
-    fetch(`/api/program/${selectedLamp}/${name}`, { method: "POST" });
-  }
+  return button;
 }
 
-function runCustom() {
-  if (!selectedLamp) return alert("Select lamp");
-
-  const program = JSON.parse(document.getElementById("program").value);
-
-  if (selectedLamp === "ALL") {
-    lampList.forEach(lamp => {
-      fetch(`/api/program/custom/${lamp}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(program)
-      });
-    });
-  } else {
-    fetch(`/api/program/custom/${selectedLamp}`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(program)
-    });
-  }
-}
-
-function runPhase() {
-  if (!selectedLamp) return;
-
-  const text = document.getElementById("program").value;
-  const data = JSON.parse(text);
-
-  fetch(`/api/program/phase/${selectedLamp}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data)
-  });
-}
-
-function stopProgram() {
-  if (!selectedLamp) return;
-
-  if (selectedLamp === "ALL") {
-    lampList.forEach(lamp => {
-      fetch(`/api/program/stop/${lamp}`, { method: "POST" });
-    });
-  } else {
-    fetch(`/api/program/stop/${selectedLamp}`, { method: "POST" });
-  }
-}
-
-// -------------------- PROGRAM BUILDER --------------------
-
-let program = [];
-
-function addStep() {
-  const cmd = document.getElementById("cmd").value;
-  const delay = parseFloat(document.getElementById("delay").value);
-
-  program.push({ cmd, delay });
-  renderProgram();
-  saveProgram();
-}
-
-function renderProgram() {
-  document.getElementById("program_view").textContent =
-    JSON.stringify(program, null, 2);
-}
-
-function clearProgram() {
-  program = [];
-  renderProgram();
-  saveProgram();
-}
-
-function runBuilt() {
-  if (!selectedLamp) return;
-
-  fetch(`/api/program/custom/${selectedLamp}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(program)
-  });
-}
-
-function runLoop() {
-  if (!selectedLamp) return;
-
-  fetch(`/api/program/custom/${selectedLamp}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      repeat: true,
-      steps: program
-    })
-  });
-}
-
-// -------------------- STORAGE --------------------
-
-function saveProgram() {
-  localStorage.setItem("program", JSON.stringify(program));
-}
-
-function loadProgram() {
-  const data = localStorage.getItem("program");
-  if (data) {
-    program = JSON.parse(data);
-    renderProgram();
-  }
-}
-
-function saveCustom() {
-  const text = document.getElementById("program").value;
-  localStorage.setItem("custom_program", text);
-}
-
-function loadCustom() {
-  const data = localStorage.getItem("custom_program");
-  if (data) {
-    document.getElementById("program").value = data;
-  }
-}
-
-// -------------------- LOGS --------------------
-
-function parseLog(line) {
-  const parts = line.split("|");
-
-  return {
-    time: parts[0],
-    level: parts[1],
-    message: parts[2]
+function aggregateAllState() {
+  const aggregated = {
+    red: false,
+    blue: false,
+    green: false,
+    yellow: false,
+    online: false,
+    source: 'aggregate',
+    last_seen: null
   };
-}
 
-function renderAllLogs() {
-  logPanel.innerHTML = "";
-
-  const filterEl = document.getElementById("logFilter");
-  const filter = filterEl ? filterEl.value : "ALL";
-
-  allLogs.forEach(line => {
-    const log = parseLog(line);
-
-    if (filter !== "ALL" && log.level !== filter) return;
-
-    const div = document.createElement("div");
-    div.className = "log-line log-" + log.level.toLowerCase();
-    div.textContent = `${log.time}  ${log.message}`;
-
-    logPanel.appendChild(div);
+  state.lamps.forEach((lamp) => {
+    const lampState = state.states[lamp.name] || lamp.state || {};
+    aggregated.red = aggregated.red || Boolean(lampState.red);
+    aggregated.blue = aggregated.blue || Boolean(lampState.blue);
+    aggregated.green = aggregated.green || Boolean(lampState.green);
+    aggregated.yellow = aggregated.yellow || Boolean(lampState.yellow);
+    aggregated.online = aggregated.online || Boolean(lampState.online);
+    if (lampState.last_seen && (!aggregated.last_seen || lampState.last_seen > aggregated.last_seen)) {
+      aggregated.last_seen = lampState.last_seen;
+    }
   });
 
-  logPanel.scrollTop = logPanel.scrollHeight;
+  return aggregated;
 }
 
-// -------------------- SOCKET --------------------
+function renderSelectedLampState() {
+  const selected = state.selectedLamp;
+  dom.selectedLampLabel.textContent = selected || '—';
+  const selectedState = selected === 'ALL'
+    ? aggregateAllState()
+    : (selected ? state.states[selected] || state.lampMap[selected]?.state : null);
 
-socket.on("lamp_state_init", (states) => {
-  allStates = states;
-  lampList = Object.keys(states); // 🔥 ВАЖНО
-  renderLamps(states);
+  const current = selectedState || {
+    red: false,
+    blue: false,
+    green: false,
+    yellow: false,
+    source: 'unknown',
+    online: false,
+    last_seen: null
+  };
 
-  const first = lampList[0];
-  if (first) setLamp(first);
+  Object.entries(dom.segments).forEach(([color, element]) => {
+    element.classList.toggle('active', Boolean(current[color]));
+  });
+
+  dom.stateSource.textContent = current.source || 'unknown';
+  dom.stateOnline.textContent = current.online ? 'online' : 'offline';
+  dom.stateLastSeen.textContent = current.last_seen ? new Date(current.last_seen * 1000).toLocaleString('ru-RU') : 'нет данных';
+}
+
+function renderPrograms() {
+  dom.builtinPrograms.innerHTML = '';
+  Object.entries(state.programs).forEach(([programKey, meta]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn';
+    button.textContent = meta.name || programKey;
+    button.addEventListener('click', () => runBuiltinProgram(programKey));
+    dom.builtinPrograms.appendChild(button);
+  });
+}
+
+function renderLogs() {
+  dom.logPanel.innerHTML = '';
+  const filter = dom.logFilter.value;
+  state.logs
+    .filter((line) => filter === 'ALL' || line.includes(`| ${filter} |`))
+    .forEach((line) => {
+      const div = document.createElement('div');
+      div.className = `log-line ${resolveLogClass(line)}`;
+      div.textContent = line;
+      dom.logPanel.appendChild(div);
+    });
+  dom.logPanel.scrollTop = dom.logPanel.scrollHeight;
+}
+
+function resolveLogClass(line) {
+  if (line.includes('| ERROR |')) return 'log-error';
+  if (line.includes('| DEBUG |')) return 'log-debug';
+  return 'log-info';
+}
+
+
+let debugEnabled = localStorage.getItem("debug") !== "off";
+
+document.getElementById("toggle-debug").addEventListener("click", async () => {
+  debugEnabled = !debugEnabled;
+
+  const mode = debugEnabled ? "on" : "off";
+
+  await fetch(`/api/logs/debug/${mode}`, { method: "POST" });
+
+  document.getElementById("toggle-debug").textContent =
+    debugEnabled ? "DEBUG ON" : "DEBUG OFF";
 });
 
-socket.on("lamp_state", (data) => {
-  const { lamp, state } = data;
+function restoreLocalState() {
+  const savedBuiltProgram = localStorage.getItem(STORAGE_KEYS.builtProgram);
+  const savedCustomProgram = localStorage.getItem(STORAGE_KEYS.customProgram);
+  const savedPhaseProgram = localStorage.getItem(STORAGE_KEYS.phaseProgram);
 
-  allStates[lamp] = state;
-
-  // 🔥 ВСЕГДА обновляем если:
-  if (selectedLamp === "ALL") {
-    renderState(state);
-  } else if (lamp === selectedLamp) {
-    renderState(state);
+  if (savedBuiltProgram) {
+    state.builtProgram = JSON.parse(savedBuiltProgram);
   }
-
-  // DEBUG
-  console.log("STATE:", lamp, state, "selected:", selectedLamp);
-});
-
-socket.on("lamp_log", ({ line }) => {
-  allLogs.push(line);
-  renderAllLogs();
-});
-
-socket.on("lamp_logs_snapshot", ({ lines }) => {
-  allLogs = lines;
-  renderAllLogs();
-});
-
-socket.on("lamp_state", (data) => {
-  console.log("STATE:", data); // 👈 добавь
-
-  const { lamp, state } = data;
-
-  allStates[lamp] = state;
-
-  if (lamp === selectedLamp) {
-    renderState(state);
+  if (savedCustomProgram) {
+    dom.customProgram.value = savedCustomProgram;
   }
-});
-
-socket.on("lamp_state", (data) => {
-  console.log("STATE FRONT:", data);
-});
-
-// -------------------- INIT --------------------
-
-fetch("/api/lamp/state")
-  .then(r => r.json())
-  .then(states => {
-    allStates = states;
-    renderLamps(states);
-  });
-
-fetch("/api/logs")
-  .then(r => r.json())
-  .then(({ lines }) => {
-    allLogs = lines;
-    renderAllLogs();
-  });
-
-const filterEl = document.getElementById("logFilter");
-if (filterEl) {
-  filterEl.addEventListener("change", renderAllLogs);
+  if (savedPhaseProgram) {
+    dom.phaseProgram.value = savedPhaseProgram;
+  }
+  renderBuiltProgram();
 }
 
-loadProgram();
-loadCustom();
+function persistBuiltProgram() {
+  localStorage.setItem(STORAGE_KEYS.builtProgram, JSON.stringify(state.builtProgram));
+  localStorage.setItem("debug", debugEnabled ? "on" : "off");
+}
+
+function addBuilderStep() {
+  state.builtProgram.push({
+    cmd: dom.builderCommand.value,
+    delay: Number(dom.builderDelay.value)
+  });
+  persistBuiltProgram();
+  renderBuiltProgram();
+}
+
+function clearBuilder() {
+  state.builtProgram = [];
+  persistBuiltProgram();
+  renderBuiltProgram();
+}
+
+function renderBuiltProgram() {
+  dom.builderPreview.textContent = JSON.stringify(state.builtProgram, null, 2);
+}
+
+function getSelectedTarget() {
+  if (!state.selectedLamp) {
+    throw new Error('Сначала выберите лампу или режим ALL.');
+  }
+  return state.selectedLamp;
+}
+
+async function sendCommand(command) {
+  try {
+    const target = getSelectedTarget();
+    await apiPost(`/api/lamp/${encodeURIComponent(target)}/command/${encodeURIComponent(command)}`);
+    setActionResult(`Команда ${command} отправлена для ${target}. Ожидаем UDP-подтверждение.`, false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
+}
+
+async function runBuiltinProgram(programKey) {
+  try {
+    const target = getSelectedTarget();
+    await apiPost(`/api/program/${encodeURIComponent(target)}/${encodeURIComponent(programKey)}`);
+    setActionResult(`Стандартная программа ${programKey} запущена для ${target}.`, false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
+}
+
+async function runCustomProgram() {
+  try {
+    const target = getSelectedTarget();
+    const program = JSON.parse(dom.customProgram.value);
+    await apiPost(`/api/program/custom/${encodeURIComponent(target)}`, program);
+    setActionResult(`JSON-программа запущена для ${target}.`, false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
+}
+
+async function runPhaseProgram() {
+  try {
+    const target = getSelectedTarget();
+    const phasePayload = JSON.parse(dom.phaseProgram.value);
+    await apiPost(`/api/program/phase/${encodeURIComponent(target)}`, phasePayload);
+    setActionResult(`Phase table запущен для ${target}.`, false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
+}
+
+async function runBuiltProgram(repeat) {
+  try {
+    const target = getSelectedTarget();
+    await apiPost(`/api/program/custom/${encodeURIComponent(target)}`, {
+      repeat,
+      steps: state.builtProgram
+    });
+    setActionResult(`Программа из конструктора запущена для ${target}.`, false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
+}
+
+async function stopProgram(target = null) {
+  try {
+    const resolvedTarget = target || getSelectedTarget();
+    await apiPost(`/api/program/stop/${encodeURIComponent(resolvedTarget)}`);
+    setActionResult(`Программа остановлена для ${resolvedTarget}.`, false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
+}
+
+async function submitAddLamp(event) {
+  event.preventDefault();
+  const formData = new FormData(dom.addLampForm);
+  try {
+    await apiPost('/api/lamps', {
+      name: formData.get('name'),
+      ip: formData.get('ip'),
+      port: Number(formData.get('port'))
+    });
+    dom.addLampForm.reset();
+    dom.addLampForm.querySelector('[name="port"]').value = 8888;
+    setActionResult('Новая лампа добавлена. Ожидается поток состояния от устройства.', false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
+}
+
+async function apiPost(url, body = null) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : null
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `Ошибка ${response.status}`);
+  }
+  return payload;
+}
+
+function setActionResult(message, isError) {
+  dom.actionResult.textContent = message;
+  dom.actionResult.classList.toggle('error', Boolean(isError));
+  dom.actionResult.classList.toggle('ok', !isError);
+}
+
+bootstrapApp();
+const savedLamp = localStorage.getItem("selectedLamp");
+if (savedLamp) {
+  state.selectedLamp = savedLamp;
+}
