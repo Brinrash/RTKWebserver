@@ -1,49 +1,78 @@
-"""Timestamped logger for UDP platform events."""
+"""Thread-safe multi-file logger for the SCADA backend."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
+from typing import Deque, Iterable
 
 
 class EventLogger:
-    def __init__(self, log_file: str, console_output: bool = False) -> None:
-        self.log_path = Path(log_file)
-        self.console_output = console_output
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        self.log_path.touch(exist_ok=True)
+    """Writes logs to dedicated files and keeps an in-memory tail for the UI."""
+
+    def __init__(self, info_path: Path, debug_path: Path, error_path: Path, max_buffer_lines: int = 300) -> None:
+        self._paths = {
+            "INFO": Path(info_path),
+            "DEBUG": Path(debug_path),
+            "ERROR": Path(error_path),
+        }
+        self._lock = Lock()
+        self._buffer: Deque[str] = deque(maxlen=max_buffer_lines)
+        self.debug_enabled = True
+        self._callback = None
+
+
+        for path in self._paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch(exist_ok=True)
 
     @staticmethod
-    def _ts() -> str:
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def _timestamp() -> str:
+        return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
-    def _write(self, message: str) -> str:
+    def _format(self, level: str, message: str) -> str:
+        return f"{self._timestamp()} | {level} | {message}"
 
-        ts = self._ts()
+    def set_callback(self, cb):
+        self._callback = cb
 
-        # определяем тип
-        if message.startswith("SEND"):
-            level = "INFO"
-        elif message.startswith("RESPONSE"):
-            level = "DEBUG"
-        elif "ERROR" in message:
-            level = "ERROR"
-        else:
-            level = "INFO"
+    def log(self, level: str, message: str) -> str:
+        level = level.upper()
+        if level not in self._paths:
+            raise ValueError(f"Unsupported log level: {level}")
 
-        line = f"{ts}|{level}|{message}"
-
-        with self.log_path.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-
+        line = self._format(level, message)
+        with self._lock:
+            with self._paths[level].open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+            self._buffer.append(line)
+            if self._callback:
+                self._callback(line)
         return line
 
-    def send(self, text: str) -> str:
-        return self._write(f"SEND: {text}")
 
-    def response(self, text: str) -> str:
-        return self._write(f"RESPONSE: {text}")
+    def info(self, message: str) -> str:
+        return self.log("INFO", message)
 
-    def tail(self, lines: int = 100) -> list[str]:
-        data = self.log_path.read_text(encoding="utf-8").splitlines()
-        return data[-lines:]
+    def debug(self, message: str) -> str:
+        if not self.debug_enabled:
+            return ""
+        return self.log("DEBUG", message)
+
+    def error(self, message: str) -> str:
+        return self.log("ERROR", message)
+
+    def tail(self, lines: int = 100, level: str | None = None) -> list[str]:
+        with self._lock:
+            snapshot = list(self._buffer)
+
+        if level:
+            marker = f"| {level.upper()} |"
+            snapshot = [line for line in snapshot if marker in line]
+        return snapshot[-lines:]
+
+    def read_file(self, level: str) -> Iterable[str]:
+        path = self._paths[level.upper()]
+        return path.read_text(encoding="utf-8").splitlines()
