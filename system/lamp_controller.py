@@ -83,6 +83,18 @@ class LampController:
     def set_state_callback(self, callback: Callable[[str, dict[str, object]], None] | None) -> None:
         self._on_state_change = callback
 
+    def update_definition(self, *, name: str, ip: str, port: int) -> None:
+        with self._lock:
+            self.definition.name = name
+            self.definition.ip = ip
+            self.definition.port = port
+
+    def close(self) -> None:
+        try:
+            self._socket.close()
+        except OSError:
+            pass
+
     def _emit_state(self) -> None:
         if self._on_state_change:
             self._on_state_change(self.name, self.get_state())
