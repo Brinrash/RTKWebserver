@@ -38,6 +38,12 @@ class LampMonitor:
             self._controllers_by_ip[controller.ip] = controller
         self._logger.info(f"Монитор зарегистрировал лампу {controller.name} ({controller.ip}:{controller.port})")
 
+    def unregister(self, ip: str) -> None:
+        with self._lock:
+            controller = self._controllers_by_ip.pop(ip, None)
+        if controller is not None:
+            self._logger.info(f"Монитор удалил лампу {controller.name} ({ip}:{controller.port})")
+
     def start(self) -> None:
         if self._running:
             return
