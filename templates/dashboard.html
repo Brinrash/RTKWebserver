@@ -25,29 +25,22 @@
     <section class="layout-two-columns">
       <section class="card">
         <h2>Текущее состояние</h2>
-        <div class="segments" id="segments">
-          <div class="segment red" id="seg-red">КРАСНЫЙ</div>
-          <div class="segment blue" id="seg-blue">СИНИЙ</div>
-          <div class="segment green" id="seg-green">ЗЕЛЁНЫЙ</div>
-          <div class="segment yellow" id="seg-yellow">ЖЁЛТЫЙ</div>
-        </div>
-        <div class="meta-grid">
-          <div><span class="label">Источник:</span> <span id="state-source">—</span></div>
-          <div><span class="label">Статус:</span> <span id="state-online">—</span></div>
-          <div><span class="label">Последний UDP:</span> <span id="state-last-seen">—</span></div>
-        </div>
+        <div id="all-lamps-state" class="all-lamps-state"></div>
       </section>
 
       <section class="card">
         <h2>Ручное управление</h2>
-        <div class="buttons grid-buttons">
-          <button data-command="RED" class="btn red">Красный</button>
-          <button data-command="BLUE" class="btn blue">Синий</button>
-          <button data-command="GREEN" class="btn green">Зелёный</button>
-          <button data-command="YELLOW" class="btn yellow">Жёлтый</button>
-          <button data-command="OFF" class="btn off">Выключить</button>
+        <div id="manual-control-single">
+          <div class="buttons grid-buttons">
+            <button data-command="RED" class="btn red">Красный</button>
+            <button data-command="YELLOW" class="btn yellow">Жёлтый</button>
+            <button data-command="GREEN" class="btn green">Зелёный</button>
+            <button data-command="BLUE" class="btn blue">Синий</button>
+            <button data-command="OFF" class="btn off">Выключить</button>
+          </div>
+          <p class="hint">Команда отправляется устройству, а UI ждёт подтверждение по UDP.</p>
         </div>
-        <p class="hint">Команда отправляется устройству, а UI ждёт подтверждение по UDP.</p>
+        <div id="all-manual-controls" class="all-manual-controls hidden"></div>
         <p id="action-result" class="action-result"></p>
       </section>
     </section>
@@ -55,7 +48,7 @@
     <section class="layout-two-columns">
       <section class="card">
         <h2>Стандартные программы</h2>
-        <div id="builtin-programs" class="buttons"></div>
+        <div id="builtin-programs" class="program-list"></div>
         <div class="buttons top-gap">
           <button id="stop-program" class="btn off">Стоп программы</button>
         </div>
@@ -81,10 +74,47 @@
       </section>
     </section>
 
+    <section class="card">
+      <div class="section-row">
+        <h2>Настройки выбранной лампы</h2>
+        <span class="hint">Недоступно для режима ALL.</span>
+      </div>
+      <form id="edit-lamp-form" class="form-grid lamp-settings-form">
+        <label>
+          Имя лампы
+          <input type="text" name="name" placeholder="lamp1" required />
+        </label>
+        <label>
+          IP адрес
+          <input type="text" name="ip" placeholder="192.168.254.101" required />
+        </label>
+        <label>
+          UDP порт
+          <input type="number" name="port" value="8888" min="1" max="65535" required />
+        </label>
+        <div class="buttons settings-actions">
+          <button type="submit" class="btn">Сохранить</button>
+          <button type="button" id="delete-lamp" class="btn off">Удалить лампу</button>
+        </div>
+      </form>
+    </section>
+
     <section class="layout-two-columns">
       <section class="card">
-        <h2>Пользовательская JSON-программа</h2>
-        <textarea id="custom-program" rows="12">{
+        <h2>JSON-программа и стандартная программа</h2>
+        <form id="program-editor-form" class="program-form">
+          <div class="builder-grid">
+            <label>
+              Ключ стандартной программы
+              <input id="standard-program-key" type="text" placeholder="my_program" />
+            </label>
+            <label>
+              Название стандартной программы
+              <input id="standard-program-name" type="text" placeholder="Моя программа" />
+            </label>
+          </div>
+          <p class="hint">JSON ниже можно запустить сразу для выбранной лампы. Чтобы сохранить его как стандартную программу, заполните ключ и название.</p>
+          <textarea id="custom-program" rows="12">{
   "repeat": false,
   "steps": [
     {"cmd": "RED", "delay": 1},
@@ -92,9 +122,12 @@
     {"cmd": "GREEN", "delay": 1}
   ]
 }</textarea>
-        <div class="buttons top-gap">
-          <button id="run-custom-program" class="btn">Запустить JSON</button>
-        </div>
+          <div class="buttons top-gap">
+            <button id="run-custom-program" type="button" class="btn">Запустить JSON</button>
+            <button type="submit" class="btn">Сохранить как стандартную</button>
+            <button id="stop-custom-program" type="button" class="btn off">Стоп</button>
+          </div>
+        </form>
       </section>
 
       <section class="card">
@@ -104,9 +137,9 @@
             Команда
             <select id="builder-command">
               <option value="RED">RED</option>
-              <option value="BLUE">BLUE</option>
-              <option value="GREEN">GREEN</option>
               <option value="YELLOW">YELLOW</option>
+              <option value="GREEN">GREEN</option>
+              <option value="BLUE">BLUE</option>
               <option value="OFF">OFF</option>
             </select>
           </label>
@@ -120,13 +153,14 @@
           <button id="builder-clear" class="btn off">Очистить</button>
           <button id="builder-run" class="btn">Запустить</button>
           <button id="builder-run-repeat" class="btn">Запустить с повтором</button>
+          <button id="builder-stop" class="btn off">Стоп</button>
         </div>
         <pre id="builder-preview"></pre>
       </section>
     </section>
 
     <section class="card">
-      <h2>Phase table</h2>
+      <h2>Таблица фаз</h2>
       <textarea id="phase-program" rows="10">{
   "repeat": false,
   "delay": 0.7,
@@ -138,7 +172,8 @@
   }
 }</textarea>
       <div class="buttons top-gap">
-        <button id="run-phase-program" class="btn">Запустить phase table</button>
+        <button id="run-phase-program" class="btn">Запустить таблицу фаз</button>
+        <button id="stop-phase-program" class="btn off">Стоп</button>
       </div>
     </section>
 
