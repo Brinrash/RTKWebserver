@@ -20,7 +20,7 @@ class EventLogger:
         }
         self._lock = Lock()
         self._buffer: Deque[str] = deque(maxlen=max_buffer_lines)
-        self.debug_enabled = True
+        self.debug_enabled = False
         self._callback = None
 
 
