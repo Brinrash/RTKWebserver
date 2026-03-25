@@ -21,6 +21,7 @@ from system.config import (
 from system.lamp_controller import LampController, LampDefinition
 from system.lamp_monitor import LampMonitor
 from system.logger import EventLogger
+from system.manipulator_controller import ManipulatorController
 from system.persistence import load_persistent_state, save_persistent_state
 from system.program_runner import ProgramRunner
 
@@ -295,6 +296,7 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["SECRET_KEY"] = SECRET_KEY
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode=SOCKET_ASYNC_MODE)
 logger = EventLogger(INFO_LOG_PATH, DEBUG_LOG_PATH, ERROR_LOG_PATH, max_buffer_lines=MAX_LOG_LINES)
+manipulator = ManipulatorController(logger=logger)
 system = LampSystem(socketio=socketio, logger=logger)
 logger.set_callback(system._broadcast_log)
 system.start()
@@ -303,6 +305,11 @@ system.start()
 @app.get("/")
 def dashboard() -> str:
     return render_template("dashboard.html")
+
+
+@app.get("/manipulator")
+def manipulator_page() -> str:
+    return render_template("manipulator.html")
 
 
 @app.get("/api/bootstrap")
@@ -391,6 +398,37 @@ def api_upsert_program():
         program_payload=payload.get("program", {}),
     )
     return jsonify({"ok": True, "program": program, "programs": system.programs})
+
+
+@app.get("/api/manipulator/config")
+def api_manipulator_config():
+    return jsonify(manipulator.config_payload())
+
+
+@app.post("/api/manipulator/command")
+def api_manipulator_command():
+    payload = request.get_json(force=True, silent=False) or {}
+    result = manipulator.send_short_command(
+        str(payload.get("command", "")),
+        host=payload.get("host"),
+        port=payload.get("port"),
+        protocol=payload.get("protocol"),
+    )
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/api/manipulator/packet")
+def api_manipulator_packet():
+    payload = request.get_json(force=True, silent=False) or {}
+    result = manipulator.send_packet(
+        angle=payload.get("angle"),
+        distance=payload.get("distance"),
+        marker=payload.get("marker"),
+        host=payload.get("host"),
+        port=payload.get("port"),
+        protocol=payload.get("protocol"),
+    )
+    return jsonify({"ok": True, **result})
 
 
 @app.post("/api/logs/debug/<mode>")
