@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <script>
+    (() => {
+      const theme = localStorage.getItem('ui_theme') || 'dark';
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCADA-пульт манипулятора</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="page-header">
+      <div>
+        <nav class="page-nav">
+          <a href="/">Лампы</a>
+          <a href="/manipulator" class="active">Манипулятор</a>
+        </nav>
+        <h1>Управление манипулятором</h1>
+        <p class="hint">Отдельная страница для отправки сервисных команд и основного пакета вида <code>p:угол:расстояние:маркер#</code>.</p>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn theme-toggle" data-theme-toggle>Светлая тема</button>
+        <div class="status-pill" id="manipulator-target">Загрузка настроек...</div>
+      </div>
+    </header>
+
+    <section class="layout-two-columns">
+      <section class="card">
+        <h2>Подключение</h2>
+        <form id="manipulator-target-form" class="builder-grid manipulator-target-form">
+          <label>
+            IP / host
+            <input id="manipulator-host" type="text" placeholder="192.168.254.120" required />
+          </label>
+          <label>
+            Порт
+            <input id="manipulator-port" type="number" min="1" max="65535" required />
+          </label>
+          <label>
+            Протокол
+            <select id="manipulator-protocol">
+              <option value="udp">UDP</option>
+              <option value="tcp">TCP</option>
+            </select>
+          </label>
+        </form>
+        <p class="hint">Значения сохраняются локально в браузере и подставляются во все команды этой страницы.</p>
+      </section>
+
+      <section class="card">
+        <h2>Сервисные команды</h2>
+        <div class="quick-command-grid">
+          <button type="button" class="btn" data-manipulator-command="1">1 — Центр</button>
+          <button type="button" class="btn" data-manipulator-command="2">2 — Боковая позиция</button>
+          <button type="button" class="btn off" data-manipulator-command="3">3 — Расслабить</button>
+          <button type="button" class="btn" data-manipulator-command="r">r — Старт телеметрии</button>
+          <button type="button" class="btn off" data-manipulator-command="s">s — Стоп телеметрии</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="layout-two-columns">
+      <section class="card">
+        <h2>Основной пакет</h2>
+        <form id="manipulator-packet-form" class="program-form">
+          <div class="builder-grid">
+            <label>
+              Угол поворота
+              <input id="manipulator-angle" type="number" required />
+            </label>
+            <label>
+              Расстояние до проекции схвата
+              <input id="manipulator-distance" type="number" required />
+            </label>
+            <label>
+              Маркер
+              <select id="manipulator-marker">
+                <option value="0">0 — опустить</option>
+                <option value="1">1 — поднять</option>
+              </select>
+            </label>
+          </div>
+          <div class="buttons top-gap">
+            <button type="submit" class="btn">Отправить пакет</button>
+          </div>
+          <pre id="manipulator-packet-preview"></pre>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Справка по ограничениям</h2>
+        <div id="manipulator-limits" class="meta-grid"></div>
+        <p class="hint">Ограничения взяты из параметров контроллера (`arm_param.h`) и используются для серверной валидации.</p>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2>Результат</h2>
+      <p id="manipulator-result" class="action-result"></p>
+    </section>
+  </main>
+
+  <script src="/static/theme.js"></script>
+  <script src="/static/manipulator.js"></script>
+</body>
+</html>
