@@ -1,96 +1,78 @@
-"""UDP monitor that maps lamp states by device IP and broadcasts updates upstream."""
+"""Thread-safe multi-file logger for the SCADA backend."""
 
 from __future__ import annotations
 
-import socket
-import threading
-from typing import Callable
-
-from .config import UDP_BUFFER_SIZE, UDP_LISTEN_HOST, UDP_LISTEN_PORT, UDP_SOCKET_TIMEOUT
-from .lamp_controller import LampController
-from .logger import EventLogger
+from collections import deque
+from datetime import datetime, timezone
+from pathlib import Path
+from threading import Lock
+from typing import Deque, Iterable
 
 
-class LampMonitor:
-    def __init__(
-        self,
-        logger: EventLogger,
-        on_packet: Callable[[str], None] | None = None,
-    ) -> None:
-        self._logger = logger
-        self._on_packet = on_packet
-        self._controllers_by_ip: dict[str, LampController] = {}
-        self._lock = threading.Lock()
-        self._running = False
-        self._thread: threading.Thread | None = None
+class EventLogger:
+    """Writes logs to dedicated files and keeps an in-memory tail for the UI."""
 
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        except OSError:
-            pass
-        self._socket.bind((UDP_LISTEN_HOST, UDP_LISTEN_PORT))
-        self._socket.settimeout(UDP_SOCKET_TIMEOUT)
+    def __init__(self, info_path: Path, debug_path: Path, error_path: Path, max_buffer_lines: int = 300) -> None:
+        self._paths = {
+            "INFO": Path(info_path),
+            "DEBUG": Path(debug_path),
+            "ERROR": Path(error_path),
+        }
+        self._lock = Lock()
+        self._buffer: Deque[str] = deque(maxlen=max_buffer_lines)
+        self.debug_enabled = False
+        self._callback = None
 
-    def register(self, controller: LampController) -> None:
+
+        for path in self._paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch(exist_ok=True)
+
+    @staticmethod
+    def _timestamp() -> str:
+        return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _format(self, level: str, message: str) -> str:
+        return f"{self._timestamp()} | {level} | {message}"
+
+    def set_callback(self, cb):
+        self._callback = cb
+
+    def log(self, level: str, message: str) -> str:
+        level = level.upper()
+        if level not in self._paths:
+            raise ValueError(f"Unsupported log level: {level}")
+
+        line = self._format(level, message)
         with self._lock:
-            self._controllers_by_ip[controller.ip] = controller
-        self._logger.info(f"Монитор зарегистрировал лампу {controller.name} ({controller.ip}:{controller.port})")
+            with self._paths[level].open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+            self._buffer.append(line)
+            if self._callback:
+                self._callback(line)
+        return line
 
-    def unregister(self, ip: str) -> None:
+
+    def info(self, message: str) -> str:
+        return self.log("INFO", message)
+
+    def debug(self, message: str) -> str:
+        if not self.debug_enabled:
+            return ""
+        return self.log("DEBUG", message)
+
+    def error(self, message: str) -> str:
+        return self.log("ERROR", message)
+
+    def tail(self, lines: int = 100, level: str | None = None) -> list[str]:
         with self._lock:
-            controller = self._controllers_by_ip.pop(ip, None)
-        if controller is not None:
-            self._logger.info(f"Монитор удалил лампу {controller.name} ({ip}:{controller.port})")
+            snapshot = list(self._buffer)
 
-    def start(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="lamp-monitor")
-        self._thread.start()
-        self._logger.info(f"UDP монитор запущен на {UDP_LISTEN_HOST}:{UDP_LISTEN_PORT}")
+        if level:
+            marker = f"| {level.upper()} |"
+            snapshot = [line for line in snapshot if marker in line]
+        return snapshot[-lines:]
 
-    def stop(self) -> None:
-        self._running = False
-        try:
-            self._socket.close()
-        except OSError:
-            pass
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1)
-
-    def _loop(self) -> None:
-        while self._running:
-            try:
-                data, addr = self._socket.recvfrom(UDP_BUFFER_SIZE)
-            except socket.timeout:
-                self._mark_stale()
-                continue
-            except OSError:
-                break
-
-            ip, port = addr
-            payload = data.decode("utf-8", errors="replace")
-            if self._logger.debug_enabled:
-                line = self._logger.debug(f"UDP пакет от {ip}:{port}: {payload.strip()}")
-                if self._on_packet and line:
-                    self._on_packet(line)
-
-            with self._lock:
-                controller = self._controllers_by_ip.get(ip)
-
-            if controller is None:
-                self._logger.debug(f"Пакет от незарегистрированного устройства {ip}:{port} проигнорирован")
-                continue
-
-            controller.update_from_udp(payload)
-            self._mark_stale()
-
-    def _mark_stale(self) -> None:
-        with self._lock:
-            controllers = list(self._controllers_by_ip.values())
-        for controller in controllers:
-            if controller.mark_offline_if_stale():
-                self._logger.debug(f"Лампа {controller.name} помечена как offline по таймауту")
+    def read_file(self, level: str) -> Iterable[str]:
+        path = self._paths[level.upper()]
+        return path.read_text(encoding="utf-8").splitlines()
