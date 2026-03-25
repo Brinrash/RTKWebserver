@@ -1,6 +1,12 @@
 <!doctype html>
 <html lang="ru">
 <head>
+  <script>
+    (() => {
+      const theme = localStorage.getItem('ui_theme') || 'dark';
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SCADA-пульт сигнальных ламп</title>
@@ -10,10 +16,17 @@
   <main class="container">
     <header class="page-header">
       <div>
+        <nav class="page-nav">
+          <a href="/" class="active">Лампы</a>
+          <a href="/manipulator">Манипулятор</a>
+        </nav>
         <h1>SCADA-пульт сигнальных ламп</h1>
         <p class="hint">Состояние индикаторов обновляется только из UDP-потока устройства.</p>
       </div>
-      <div class="status-pill" id="connection-status">Socket: подключение...</div>
+      <div class="header-actions">
+        <button type="button" class="btn theme-toggle" data-theme-toggle>Светлая тема</button>
+        <div class="status-pill" id="connection-status">Socket: подключение...</div>
+      </div>
     </header>
 
     <section class="card">
@@ -195,6 +208,7 @@
     </section>
   </main>
 
+  <script src="/static/theme.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="/static/dashboard.js"></script>
 </body>
