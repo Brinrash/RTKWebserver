@@ -13,15 +13,24 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <main class="container">
-    <header class="page-header">
-      <div>
+  <main class="container manipulator-screen">
+    <header class="page-header manipulator-toolbar">
+      <div class="toolbar-left">
         <nav class="page-nav">
           <a href="/">Лампы</a>
           <a href="/manipulator" class="active">Манипулятор</a>
         </nav>
-        <h1>Управление манипулятором</h1>
-        <p class="hint">Отдельная страница для отправки сервисных команд и основного пакета вида <code>p:угол:расстояние:маркер#</code>.</p>
+        <div class="toolbar-actions">
+          <button type="button" class="btn off" data-toolbar-action="toggle-preview">Show/Hide Preview</button>
+          <button type="button" class="btn off" data-toolbar-action="toggle-limits">Show/Hide Limits</button>
+          <button type="button" class="btn" data-toolbar-action="reload">Reload</button>
+          <select>
+            <option>Default</option>
+          </select>
+          <select>
+            <option>FullScreen</option>
+          </select>
+        </div>
       </div>
       <div class="header-actions">
         <button type="button" class="btn theme-toggle" data-theme-toggle>Светлая тема</button>
@@ -29,9 +38,105 @@
       </div>
     </header>
 
+    <section class="scada-grid">
+      <section class="card manipulator-panel main-panel">
+        <h2>Manipulator</h2>
+        <div class="manipulator-content">
+          <form id="manipulator-packet-form" class="joystick" autocomplete="off">
+            <button type="button" class="axis-side" data-axis-step="angle" data-step="-5">X-</button>
+            <div class="axis-main">
+              <button type="button" class="axis-btn" data-axis-step="distance" data-step="5">Y+</button>
+              <div class="axis-row">
+                <button type="button" class="axis-btn" data-manipulator-command="1">G+</button>
+                <button type="button" class="axis-btn" data-axis-step="angle" data-step="5">UP</button>
+                <button type="button" class="axis-btn" data-manipulator-command="2">R+</button>
+              </div>
+              <div class="axis-row">
+                <button type="button" class="axis-btn" data-manipulator-command="3">G-</button>
+                <button type="button" class="axis-btn" data-axis-step="angle" data-step="-5">DOWN</button>
+                <button type="button" class="axis-btn" data-manipulator-command="r">R-</button>
+              </div>
+              <button type="button" class="axis-btn" data-axis-step="distance" data-step="-5">Y-</button>
+            </div>
+            <button type="button" class="axis-side" data-axis-step="distance" data-step="10">X+</button>
+
+            <div class="packet-fields">
+              <label>
+                Угол
+                <input id="manipulator-angle" type="number" required />
+              </label>
+              <label>
+                Дистанция
+                <input id="manipulator-distance" type="number" required />
+              </label>
+              <label>
+                Маркер
+                <select id="manipulator-marker">
+                  <option value="0">0</option>
+                  <option value="1">1</option>
+                </select>
+              </label>
+              <button type="submit" class="btn">Send Packet</button>
+            </div>
+          </form>
+          <div class="telemetry-grid" id="manipulator-telemetry"></div>
+        </div>
+      </section>
+
+      <section class="card terminal-panel">
+        <h2>Remote_Terminal</h2>
+        <div class="terminal-lights" id="remote-terminal-lights"></div>
+        <div class="terminal-controls">
+          <button type="button" class="switch" data-manipulator-command="s">0</button>
+          <button type="button" class="switch" data-manipulator-command="1">0</button>
+          <button type="button" class="switch" data-manipulator-command="2">0</button>
+          <button type="button" class="switch" data-manipulator-command="r">0</button>
+        </div>
+      </section>
+
+      <section class="card traffic-panel">
+        <h2>Traffic_Lights_2</h2>
+        <div class="lamp-stack" id="traffic-lights-2"></div>
+      </section>
+
+      <section class="card traffic-panel">
+        <h2>Traffic_Lights_1</h2>
+        <div class="lamp-stack" id="traffic-lights-1"></div>
+      </section>
+
+      <section class="card manipulator-panel compact-panel">
+        <h2>Palletizer</h2>
+        <div class="manipulator-content">
+          <div class="joystick preview-only">
+            <div class="axis-side">X-</div>
+            <div class="axis-main">
+              <div class="axis-btn">Y+</div>
+              <div class="axis-row axis-row-two">
+                <div class="axis-btn">V+</div>
+                <div class="axis-btn">UP</div>
+              </div>
+              <div class="axis-row axis-row-two">
+                <div class="axis-btn">V-</div>
+                <div class="axis-btn">DOWN</div>
+              </div>
+              <div class="axis-btn">Y-</div>
+            </div>
+            <div class="axis-side">X+</div>
+          </div>
+          <div class="telemetry-grid" id="palletizer-telemetry"></div>
+        </div>
+      </section>
+    </section>
+
     <section class="layout-two-columns">
       <section class="card">
-        <h2>Подключение</h2>
+        <div class="section-row">
+          <h2>Подключение</h2>
+          <div class="buttons compact">
+            <select id="manipulator-saved-targets"></select>
+            <button type="button" id="add-manipulator-target" class="btn">Добавить манипулятор</button>
+          </div>
+        </div>
         <form id="manipulator-target-form" class="builder-grid manipulator-target-form">
           <label>
             IP / host
@@ -49,59 +154,13 @@
             </select>
           </label>
         </form>
-        <p class="hint">Значения сохраняются локально в браузере и подставляются во все команды этой страницы.</p>
       </section>
-
       <section class="card">
-        <h2>Сервисные команды</h2>
-        <div class="quick-command-grid">
-          <button type="button" class="btn" data-manipulator-command="1">1 — Центр</button>
-          <button type="button" class="btn" data-manipulator-command="2">2 — Боковая позиция</button>
-          <button type="button" class="btn off" data-manipulator-command="3">3 — Расслабить</button>
-          <button type="button" class="btn" data-manipulator-command="r">r — Старт телеметрии</button>
-          <button type="button" class="btn off" data-manipulator-command="s">s — Стоп телеметрии</button>
-        </div>
-      </section>
-    </section>
-
-    <section class="layout-two-columns">
-      <section class="card">
-        <h2>Основной пакет</h2>
-        <form id="manipulator-packet-form" class="program-form">
-          <div class="builder-grid">
-            <label>
-              Угол поворота
-              <input id="manipulator-angle" type="number" required />
-            </label>
-            <label>
-              Расстояние до проекции схвата
-              <input id="manipulator-distance" type="number" required />
-            </label>
-            <label>
-              Маркер
-              <select id="manipulator-marker">
-                <option value="0">0 — опустить</option>
-                <option value="1">1 — поднять</option>
-              </select>
-            </label>
-          </div>
-          <div class="buttons top-gap">
-            <button type="submit" class="btn">Отправить пакет</button>
-          </div>
-          <pre id="manipulator-packet-preview"></pre>
-        </form>
-      </section>
-
-      <section class="card">
-        <h2>Справка по ограничениям</h2>
+        <h2>Результат</h2>
+        <pre id="manipulator-packet-preview"></pre>
+        <p id="manipulator-result" class="action-result"></p>
         <div id="manipulator-limits" class="meta-grid"></div>
-        <p class="hint">Ограничения взяты из параметров контроллера (`arm_param.h`) и используются для серверной валидации.</p>
       </section>
-    </section>
-
-    <section class="card">
-      <h2>Результат</h2>
-      <p id="manipulator-result" class="action-result"></p>
     </section>
   </main>
 
