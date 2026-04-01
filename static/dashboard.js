@@ -7,7 +7,9 @@ const state = {
   states: {},
   logs: [],
   builtProgram: [],
-  programs: {}
+  programs: {},
+  infoEnabled: true,
+  recordingEnabled: true
 };
 
 const dom = {
@@ -40,7 +42,9 @@ const STORAGE_KEYS = {
   phaseProgram: 'scada_phase_program',
   programEditorMeta: 'scada_program_editor_meta',
   selectedLamp: 'selectedLamp',
-  debug: 'debug'
+  debug: 'debug',
+  info: 'info_enabled',
+  recording: 'log_recording_enabled'
 };
 
 const DEFAULT_DRAFTS = {
@@ -54,6 +58,8 @@ let debugEnabled = localStorage.getItem(STORAGE_KEYS.debug) === 'on';
 function bootstrapApp() {
   restoreLocalState();
   bindEvents();
+  syncInfoButton();
+  syncRecordingButton();
   syncDebugButton();
   fetchBootstrap();
 }
@@ -77,6 +83,8 @@ function bindEvents() {
     state.logs = [];
     renderLogs();
   });
+  document.getElementById('toggle-info').addEventListener('click', toggleInfo);
+  document.getElementById('toggle-recording').addEventListener('click', toggleRecording);
   document.getElementById('toggle-debug').addEventListener('click', toggleDebug);
   dom.logFilter.addEventListener('change', renderLogs);
   dom.addLampForm.addEventListener('submit', submitAddLamp);
@@ -170,7 +178,10 @@ function handleLampState(payload) {
 }
 
 function handleLogLine(payload) {
-  if (!payload?.line) return;
+  if (!payload?.line || !state.recordingEnabled) return;
+  if (!state.infoEnabled && payload.line.includes('| INFO |')) {
+    return;
+  }
   state.logs.push(payload.line);
   if (state.logs.length > 500) {
     state.logs = state.logs.slice(-500);
@@ -386,6 +397,27 @@ function resolveLogClass(line) {
   return 'log-info';
 }
 
+
+function syncInfoButton() {
+  document.getElementById('toggle-info').textContent = state.infoEnabled ? 'INFO ON' : 'INFO PAUSED';
+}
+
+function syncRecordingButton() {
+  document.getElementById('toggle-recording').textContent = state.recordingEnabled ? 'Запись ON' : 'Запись PAUSED';
+}
+
+function toggleInfo() {
+  state.infoEnabled = !state.infoEnabled;
+  localStorage.setItem(STORAGE_KEYS.info, state.infoEnabled ? 'on' : 'off');
+  syncInfoButton();
+}
+
+function toggleRecording() {
+  state.recordingEnabled = !state.recordingEnabled;
+  localStorage.setItem(STORAGE_KEYS.recording, state.recordingEnabled ? 'on' : 'off');
+  syncRecordingButton();
+}
+
 function syncDebugButton() {
   document.getElementById('toggle-debug').textContent = debugEnabled ? 'DEBUG ON' : 'DEBUG OFF';
 }
@@ -395,6 +427,8 @@ async function toggleDebug() {
   const mode = debugEnabled ? 'on' : 'off';
   await fetch(`/api/logs/debug/${mode}`, { method: 'POST' });
   localStorage.setItem(STORAGE_KEYS.debug, debugEnabled ? 'on' : 'off');
+  syncInfoButton();
+  syncRecordingButton();
   syncDebugButton();
 }
 
@@ -404,6 +438,8 @@ function restoreLocalState() {
   if (savedLamp) {
     state.selectedLamp = savedLamp;
   }
+  state.infoEnabled = localStorage.getItem(STORAGE_KEYS.info) !== 'off';
+  state.recordingEnabled = localStorage.getItem(STORAGE_KEYS.recording) !== 'off';
   restoreProgramEditorMeta();
   renderBuiltProgram();
 }
