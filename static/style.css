@@ -446,3 +446,260 @@ pre {
     align-items: stretch;
   }
 }
+
+.manipulator-screen {
+  max-width: 1380px;
+}
+
+.manipulator-toolbar {
+  align-items: flex-start;
+}
+
+.toolbar-left {
+  display: grid;
+  gap: 8px;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scada-grid {
+  display: grid;
+  grid-template-columns: minmax(560px, 2.2fr) minmax(300px, 1fr) minmax(150px, 0.6fr) minmax(150px, 0.6fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.scada-grid .compact-panel {
+  grid-column: 1 / 2;
+}
+
+.card.manipulator-panel,
+.card.terminal-panel,
+.card.traffic-panel {
+  overflow: hidden;
+}
+
+.terminal-panel,
+.traffic-panel,
+.telemetry-grid,
+.telemetry-row,
+.packet-fields,
+.axis-main {
+  min-width: 0;
+}
+
+.manipulator-panel h2,
+.terminal-panel h2,
+.traffic-panel h2 {
+  margin-top: 0;
+  text-align: center;
+}
+
+.manipulator-content {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(320px, 1.25fr);
+  gap: 16px;
+}
+
+.joystick {
+  display: grid;
+  grid-template-columns: 50px minmax(180px, 1fr) 50px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.axis-main {
+  display: grid;
+  gap: 8px;
+}
+
+.axis-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.axis-btn,
+.axis-side,
+.switch {
+  border: 1px solid #1d4ed8;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #e0f2fe;
+  font-weight: 700;
+  text-align: center;
+  padding: 10px 6px;
+}
+
+.axis-side {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  min-height: 168px;
+}
+
+.packet-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.telemetry-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.telemetry-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  font-size: 12px;
+}
+
+.telemetry-cell {
+  border-radius: 4px;
+  border: 1px solid #a16207;
+  background: linear-gradient(180deg, #65a30d 0%, #4d7c0f 100%);
+  color: #fef9c3;
+  text-align: center;
+  padding: 5px 2px;
+  font-weight: 700;
+}
+
+.terminal-lights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.signal-box,
+.lamp-box {
+  border: 1px solid var(--border-strong);
+  background: var(--panel-4);
+  height: 26px;
+  border-radius: 4px;
+}
+
+.terminal-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: center;
+}
+
+.traffic-panel {
+  min-height: 256px;
+}
+
+.lamp-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.preview-only .axis-btn,
+.preview-only .axis-side {
+  opacity: 0.85;
+}
+
+@media (max-width: 1200px) {
+  .scada-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scada-grid .compact-panel {
+    grid-column: auto;
+  }
+
+  .manipulator-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* manipulator hotfix layout */
+.scada-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.scada-grid .main-panel {
+  grid-column: span 6;
+}
+
+.scada-grid .terminal-panel {
+  grid-column: span 3;
+}
+
+.scada-grid .traffic-panel {
+  grid-column: span 2;
+  min-width: 140px;
+}
+
+.scada-grid .compact-panel {
+  grid-column: span 6;
+}
+
+.manipulator-content {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(260px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.joystick,
+.axis-main,
+.axis-row,
+.packet-fields,
+.telemetry-grid,
+.terminal-panel,
+.traffic-panel {
+  min-width: 0;
+}
+
+.axis-btn,
+.axis-side,
+.switch,
+.btn {
+  position: relative;
+  z-index: 1;
+}
+
+.axis-row-two {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.packet-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.traffic-panel h2 {
+  font-size: 1.05rem;
+  word-break: break-word;
+}
+
+#manipulator-saved-targets {
+  min-width: 220px;
+}
+
+@media (max-width: 1280px) {
+  .scada-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scada-grid .main-panel,
+  .scada-grid .terminal-panel,
+  .scada-grid .traffic-panel,
+  .scada-grid .compact-panel {
+    grid-column: auto;
+  }
+
+  .manipulator-content {
+    grid-template-columns: 1fr;
+  }
+}
