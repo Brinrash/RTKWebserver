@@ -9,7 +9,9 @@ const state = {
   builtProgram: [],
   programs: {},
   infoEnabled: true,
-  recordingEnabled: true
+  recordingEnabled: true,
+  manualMode: "single",
+  mixedState: { red: false, yellow: false, green: false, blue: false }
 };
 
 const dom = {
@@ -33,7 +35,10 @@ const dom = {
   logFilter: document.getElementById('log-filter'),
   builderCommand: document.getElementById('builder-command'),
   builderDelay: document.getElementById('builder-delay'),
-  builderPreview: document.getElementById('builder-preview')
+  builderPreview: document.getElementById('builder-preview'),
+  manualModeSingle: document.getElementById('manual-mode-single'),
+  manualModeMulti: document.getElementById('manual-mode-multi'),
+  manualModeHint: document.getElementById('manual-mode-hint')
 };
 
 const STORAGE_KEYS = {
@@ -66,7 +71,7 @@ function bootstrapApp() {
 
 function bindEvents() {
   document.querySelectorAll('[data-command]').forEach((button) => {
-    button.addEventListener('click', () => sendCommand(button.dataset.command));
+    button.addEventListener('click', () => handleManualColorButton(button.dataset.command));
   });
 
   document.getElementById('run-custom-program').addEventListener('click', runCustomProgram);
@@ -79,6 +84,8 @@ function bindEvents() {
   document.getElementById('builder-run').addEventListener('click', () => runBuiltProgram(false));
   document.getElementById('builder-run-repeat').addEventListener('click', () => runBuiltProgram(true));
   document.getElementById('builder-stop').addEventListener('click', () => stopProgram());
+  dom.manualModeSingle.addEventListener('click', () => setManualMode('single'));
+  dom.manualModeMulti.addEventListener('click', () => setManualMode('multi'));
   document.getElementById('clear-log-view').addEventListener('click', () => {
     state.logs = [];
     renderLogs();
@@ -255,11 +262,45 @@ function aggregateAllState() {
 
 function renderSelectedLampState() {
   const selected = state.selectedLamp;
-  const isAllMode = selected === 'ALL';
   dom.selectedLampLabel.textContent = selected || '—';
-  dom.manualControlSingle.classList.toggle('hidden', isAllMode);
+  syncManualStateFromSelection();
+  syncManualModeUi();
 
   renderLampIndicators();
+}
+
+
+function syncManualStateFromSelection() {
+  const selected = state.selectedLamp;
+  const lampState = selected && selected !== 'ALL' ? state.states[selected] : null;
+
+  if (lampState) {
+    state.mixedState = {
+      red: Boolean(lampState.red),
+      yellow: Boolean(lampState.yellow),
+      green: Boolean(lampState.green),
+      blue: Boolean(lampState.blue),
+    };
+  }
+}
+
+function syncManualModeUi() {
+  const isSingle = state.manualMode === 'single';
+  dom.manualModeSingle.classList.toggle('off', !isSingle);
+  dom.manualModeMulti.classList.toggle('off', isSingle);
+  dom.manualModeHint.textContent = isSingle
+    ? 'Режим одного цвета: отправляется одна команда.'
+    : 'Режим много цветов: кнопки цветов работают как переключатели состояния.';
+
+  document.querySelectorAll('#manual-color-buttons [data-command]').forEach((button) => {
+    const command = button.dataset.command;
+    if (command === 'OFF') {
+      button.classList.remove('active');
+      return;
+    }
+    const color = command.toLowerCase();
+    button.classList.toggle('active', state.manualMode === 'multi' && Boolean(state.mixedState[color]));
+  });
 }
 
 function renderLampIndicators() {
@@ -603,6 +644,42 @@ function getEditableTarget() {
     throw new Error('Для изменения настроек выберите конкретную лампу.');
   }
   return target;
+}
+
+
+function setManualMode(mode) {
+  state.manualMode = mode === 'multi' ? 'multi' : 'single';
+  syncManualModeUi();
+}
+
+async function handleManualColorButton(command) {
+  if (state.manualMode === 'single') {
+    await sendCommand(command);
+    return;
+  }
+
+  const target = getSelectedTarget();
+  if (command === 'OFF') {
+    state.mixedState = { red: false, yellow: false, green: false, blue: false };
+  } else {
+    const key = command.toLowerCase();
+    state.mixedState[key] = !state.mixedState[key];
+  }
+
+  syncManualModeUi();
+  await sendMixedState(target, state.mixedState);
+}
+
+async function sendMixedState(target, mixedState) {
+  try {
+    await apiRequest(`/api/lamp/${encodeURIComponent(target)}/state`, {
+      method: 'POST',
+      body: mixedState
+    });
+    setActionResult(`Состояние цветов отправлено для ${target}.`, false);
+  } catch (error) {
+    setActionResult(error.message, true);
+  }
 }
 
 async function sendCommand(command, targetOverride = null) {
