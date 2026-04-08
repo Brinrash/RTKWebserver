@@ -13,6 +13,8 @@ const dom = {
   host: document.getElementById('manipulator-host'),
   port: document.getElementById('manipulator-port'),
   protocol: document.getElementById('manipulator-protocol'),
+  savedTargets: document.getElementById('manipulator-saved-targets'),
+  saveTargetButton: document.getElementById('save-manipulator-target'),
   packetForm: document.getElementById('manipulator-packet-form'),
   angle: document.getElementById('manipulator-angle'),
   distance: document.getElementById('manipulator-distance'),
@@ -20,14 +22,7 @@ const dom = {
   result: document.getElementById('manipulator-result'),
   preview: document.getElementById('manipulator-packet-preview'),
   targetPill: document.getElementById('manipulator-target'),
-  limits: document.getElementById('manipulator-limits'),
-  manipulatorTelemetry: document.getElementById('manipulator-telemetry'),
-  palletizerTelemetry: document.getElementById('palletizer-telemetry'),
-  terminalLights: document.getElementById('remote-terminal-lights'),
-  traffic1: document.getElementById('traffic-lights-1'),
-  traffic2: document.getElementById('traffic-lights-2'),
-  savedTargets: document.getElementById('manipulator-saved-targets'),
-  addTargetButton: document.getElementById('add-manipulator-target')
+  limits: document.getElementById('manipulator-limits')
 };
 
 const state = {
@@ -37,33 +32,18 @@ const state = {
 
 function bootstrap() {
   bindEvents();
-  renderStaticWidgets();
   fetchConfig();
 }
 
 function bindEvents() {
-  dom.targetForm.addEventListener('input', () => {
-    persistTargetSettings();
-    updateTargetPill();
-    updatePreview();
-  });
-
-  dom.savedTargets.addEventListener('change', handleTargetSelect);
-  dom.addTargetButton.addEventListener('click', addCurrentTarget);
+  dom.targetForm.addEventListener('input', handleTargetFormChange);
+  dom.savedTargets.addEventListener('change', handleSelectSavedTarget);
+  dom.saveTargetButton.addEventListener('click', saveCurrentTarget);
 
   dom.packetForm.addEventListener('submit', submitPacket);
-  dom.angle.addEventListener('input', () => {
-    persistPacketDraft();
-    updatePreview();
-  });
-  dom.distance.addEventListener('input', () => {
-    persistPacketDraft();
-    updatePreview();
-  });
-  dom.marker.addEventListener('change', () => {
-    persistPacketDraft();
-    updatePreview();
-  });
+  dom.angle.addEventListener('input', handlePacketDraftChange);
+  dom.distance.addEventListener('input', handlePacketDraftChange);
+  dom.marker.addEventListener('change', handlePacketDraftChange);
 
   document.querySelectorAll('[data-manipulator-command]').forEach((button) => {
     button.addEventListener('click', () => sendShortCommand(button.dataset.manipulatorCommand));
@@ -71,84 +51,27 @@ function bindEvents() {
 
   document.querySelectorAll('[data-axis-step]').forEach((button) => {
     button.addEventListener('click', () => {
-      const field = button.dataset.axisStep === 'angle' ? dom.angle : dom.distance;
-      const delta = Number(button.dataset.step || 0);
-      const current = Number(field.value || 0);
-      field.value = String(current + delta);
-      persistPacketDraft();
-      updatePreview();
+      stepPacketField(button.dataset.axisStep, Number(button.dataset.step || 0));
     });
   });
-
-  document.querySelectorAll('[data-toolbar-action]').forEach((button) => {
-    button.addEventListener('click', () => handleToolbarAction(button.dataset.toolbarAction));
-  });
-}
-
-function handleToolbarAction(action) {
-  if (action === 'reload') {
-    fetchConfig();
-    setResult('Настройки обновлены.', false);
-    return;
-  }
-
-  if (action === 'toggle-preview') {
-    dom.preview.classList.toggle('hidden');
-    return;
-  }
-
-  if (action === 'toggle-limits') {
-    dom.limits.classList.toggle('hidden');
-  }
-}
-
-function renderStaticWidgets() {
-  renderTelemetry(dom.manipulatorTelemetry, [
-    ['Motor_1', 'Motor_2', 'Motor_3', 'Motor_4', 'Motor_5', 'Motor_6'],
-    ['Load_1', 'Load_2', 'Load_3', 'Load_4', 'Load_5', 'Load_6'],
-    ['Temp_1', 'Temp_2', 'Temp_3', 'Temp_4', 'Temp_5', 'Temp_6']
-  ]);
-
-  renderTelemetry(dom.palletizerTelemetry, [
-    ['Motor_1', 'Motor_2', 'Motor_3', 'Motor_4', 'Motor_5'],
-    ['Load_1', 'Load_2', 'Load_3', 'Load_4', 'Load_5'],
-    ['Temp_1', 'Temp_2', 'Temp_3', 'Temp_4', 'Temp_5']
-  ]);
-
-  dom.terminalLights.innerHTML = ['L1', 'L2', 'L3', 'L4']
-    .map((name) => `<div><div class="label">${name}</div><div class="signal-box"></div></div>`)
-    .join('');
-
-  const lampTemplate = ['L1', 'L2', 'L3', 'L4']
-    .map((name) => `<div><div class="label">${name}</div><div class="lamp-box"></div></div>`)
-    .join('');
-
-  dom.traffic1.innerHTML = lampTemplate;
-  dom.traffic2.innerHTML = lampTemplate;
-}
-
-function renderTelemetry(container, rows) {
-  container.innerHTML = rows
-    .map((row) => `
-      <div class="telemetry-row" style="grid-template-columns: repeat(${row.length}, minmax(0, 1fr));">
-        ${row.map((label) => `<div class="telemetry-cell">${label}<br>0</div>`).join('')}
-      </div>
-    `)
-    .join('');
 }
 
 async function fetchConfig() {
-  const response = await fetch('/api/manipulator/config');
-  const config = await response.json();
-  state.limits = config.limits || {};
-  restoreSettings(config);
-  restoreSavedTargets();
-  renderLimits();
-  updateTargetPill();
-  updatePreview();
+  try {
+    const response = await fetch('/api/manipulator/config');
+    const config = await response.json();
+    state.limits = config.limits || {};
+    restoreForm(config);
+    restoreTargets();
+    renderLimits();
+    updatePreview();
+    updateTargetPill();
+  } catch (_error) {
+    setResult('Не удалось загрузить конфигурацию манипулятора.', true);
+  }
 }
 
-function restoreSettings(config) {
+function restoreForm(config) {
   dom.host.value = localStorage.getItem(STORAGE_KEYS.host) || config.default_host || '';
   dom.port.value = localStorage.getItem(STORAGE_KEYS.port) || config.default_port || '';
   dom.protocol.value = localStorage.getItem(STORAGE_KEYS.protocol) || config.default_protocol || 'udp';
@@ -157,10 +80,10 @@ function restoreSettings(config) {
   dom.marker.value = localStorage.getItem(STORAGE_KEYS.marker) || '0';
 }
 
-function restoreSavedTargets() {
-  const rawValue = localStorage.getItem(STORAGE_KEYS.targets);
+function restoreTargets() {
+  const raw = localStorage.getItem(STORAGE_KEYS.targets);
   try {
-    state.targets = rawValue ? JSON.parse(rawValue) : [];
+    state.targets = raw ? JSON.parse(raw) : [];
   } catch (_error) {
     state.targets = [];
   }
@@ -168,27 +91,40 @@ function restoreSavedTargets() {
 }
 
 function renderSavedTargets() {
-  const options = ['<option value="">Сохранённые манипуляторы</option>'];
+  const options = ['<option value="">Выберите сохранённую цель</option>'];
   state.targets.forEach((target, index) => {
     options.push(`<option value="${index}">${target.host}:${target.port} (${target.protocol.toUpperCase()})</option>`);
   });
   dom.savedTargets.innerHTML = options.join('');
 }
 
-function handleTargetSelect() {
+function handleTargetFormChange() {
+  persistTarget();
+  updateTargetPill();
+}
+
+function handlePacketDraftChange() {
+  persistPacketDraft();
+  updatePreview();
+}
+
+function handleSelectSavedTarget() {
   const index = Number(dom.savedTargets.value);
   if (!Number.isInteger(index) || index < 0 || !state.targets[index]) {
     return;
   }
+
   const target = state.targets[index];
   dom.host.value = target.host;
   dom.port.value = target.port;
   dom.protocol.value = target.protocol;
-  persistTargetSettings();
+
+  persistTarget();
   updateTargetPill();
+  setResult(`Активная цель: ${target.host}:${target.port} (${target.protocol.toUpperCase()})`, false);
 }
 
-function addCurrentTarget() {
+function saveCurrentTarget() {
   const target = {
     host: dom.host.value.trim(),
     port: dom.port.value.trim(),
@@ -196,23 +132,63 @@ function addCurrentTarget() {
   };
 
   if (!target.host || !target.port) {
-    setResult('Чтобы добавить манипулятор, заполните host и порт.', true);
+    setResult('Введите host и порт перед сохранением.', true);
     return;
   }
 
   const exists = state.targets.some((item) => item.host === target.host && item.port === target.port && item.protocol === target.protocol);
   if (exists) {
-    setResult('Такой манипулятор уже добавлен.', true);
+    setResult('Такая цель уже есть в списке.', true);
     return;
   }
 
   state.targets.push(target);
   localStorage.setItem(STORAGE_KEYS.targets, JSON.stringify(state.targets));
   renderSavedTargets();
-  setResult(`Манипулятор ${target.host}:${target.port} добавлен.`, false);
+  setResult(`Сохранена цель ${target.host}:${target.port}.`, false);
 }
 
-function persistTargetSettings() {
+function stepPacketField(fieldName, step) {
+  const input = fieldName === 'angle' ? dom.angle : dom.distance;
+  const current = Number(input.value || 0);
+  input.value = String(current + step);
+  enforceLimits();
+  handlePacketDraftChange();
+}
+
+function enforceLimits() {
+  if (!state.limits) {
+    return;
+  }
+
+  const angle = Number(dom.angle.value);
+  const distance = Number(dom.distance.value);
+
+  if (!Number.isNaN(angle)) {
+    dom.angle.value = String(clamp(angle, Number(state.limits.min_rot), Number(state.limits.max_rot)));
+  }
+
+  if (!Number.isNaN(distance)) {
+    dom.distance.value = String(clamp(distance, Number(state.limits.min_dist), Number(state.limits.max_dist)));
+  }
+}
+
+function clamp(value, min, max) {
+  if (Number.isNaN(min) || Number.isNaN(max)) {
+    return value;
+  }
+  return Math.max(min, Math.min(max, value));
+}
+
+function getTargetPayload() {
+  return {
+    host: dom.host.value.trim(),
+    port: Number(dom.port.value),
+    protocol: dom.protocol.value
+  };
+}
+
+function persistTarget() {
   localStorage.setItem(STORAGE_KEYS.host, dom.host.value);
   localStorage.setItem(STORAGE_KEYS.port, dom.port.value);
   localStorage.setItem(STORAGE_KEYS.protocol, dom.protocol.value);
@@ -222,14 +198,6 @@ function persistPacketDraft() {
   localStorage.setItem(STORAGE_KEYS.angle, dom.angle.value);
   localStorage.setItem(STORAGE_KEYS.distance, dom.distance.value);
   localStorage.setItem(STORAGE_KEYS.marker, dom.marker.value);
-}
-
-function getTargetPayload() {
-  return {
-    host: dom.host.value.trim(),
-    port: Number(dom.port.value),
-    protocol: dom.protocol.value
-  };
 }
 
 function updateTargetPill() {
@@ -247,20 +215,22 @@ function renderLimits() {
   }
 
   const items = [
-    ['Угол', `${state.limits.min_rot} — ${state.limits.max_rot}`],
-    ['Расстояние', `${state.limits.min_dist} — ${state.limits.max_dist}`],
-    ['Высота захвата', `${state.limits.cargo_pos_z}`],
-    ['Высота над грузом', `${state.limits.above_cargo_z}`]
+    ['Минимальный угол', state.limits.min_rot],
+    ['Максимальный угол', state.limits.max_rot],
+    ['Минимальная дистанция', state.limits.min_dist],
+    ['Максимальная дистанция', state.limits.max_dist],
+    ['Высота захвата', state.limits.cargo_pos_z],
+    ['Высота над грузом', state.limits.above_cargo_z]
   ];
 
   dom.limits.innerHTML = items
     .map(
       ([label, value]) => `
-    <div class="meta-card">
-      <span class="label">${label}</span>
-      <strong>${value}</strong>
-    </div>
-  `
+      <div class="meta-card">
+        <span class="label">${label}</span>
+        <strong>${value}</strong>
+      </div>
+    `
     )
     .join('');
 
@@ -279,7 +249,7 @@ async function sendShortCommand(command) {
         ...getTargetPayload()
       }
     });
-    setResult(`Команда ${response.payload} отправлена на ${response.host}:${response.port} (${response.protocol.toUpperCase()}).`, false);
+    setResult(`Команда ${response.payload} отправлена на ${response.host}:${response.port}.`, false);
   } catch (error) {
     setResult(error.message, true);
   }
@@ -287,4 +257,46 @@ async function sendShortCommand(command) {
 
 async function submitPacket(event) {
   event.preventDefault();
-  persistTargetSettings();
+  enforceLimits();
+  persistTarget();
+  persistPacketDraft();
+
+  try {
+    const response = await apiRequest('/api/manipulator/packet', {
+      method: 'POST',
+      body: {
+        angle: Number(dom.angle.value),
+        distance: Number(dom.distance.value),
+        marker: Number(dom.marker.value),
+        ...getTargetPayload()
+      }
+    });
+    updatePreview();
+    setResult(`Пакет ${response.payload} отправлен на ${response.host}:${response.port}.`, false);
+  } catch (error) {
+    setResult(error.message, true);
+  }
+}
+
+async function apiRequest(url, { method = 'GET', body = null } = {}) {
+  const response = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : null
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.error || `Ошибка ${response.status}`);
+  }
+
+  return payload;
+}
+
+function setResult(message, isError) {
+  dom.result.textContent = message;
+  dom.result.classList.toggle('error', Boolean(isError));
+  dom.result.classList.toggle('ok', !isError);
+}
+
+bootstrap();
