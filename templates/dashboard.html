@@ -44,14 +44,18 @@
       <section class="card">
         <h2>Ручное управление</h2>
         <div id="manual-control-single">
-          <div class="buttons grid-buttons">
+          <div class="buttons compact" id="manual-mode-switch">
+            <button id="manual-mode-single" type="button" class="btn">Режим: один цвет</button>
+            <button id="manual-mode-multi" type="button" class="btn off">Режим: много цветов</button>
+          </div>
+          <div class="buttons grid-buttons top-gap" id="manual-color-buttons">
             <button data-command="RED" class="btn red">Красный</button>
             <button data-command="YELLOW" class="btn yellow">Жёлтый</button>
             <button data-command="GREEN" class="btn green">Зелёный</button>
             <button data-command="BLUE" class="btn blue">Синий</button>
             <button data-command="OFF" class="btn off">Выключить</button>
           </div>
-          <p class="hint">Команда отправляется устройству, а UI ждёт подтверждение по UDP.</p>
+          <p class="hint" id="manual-mode-hint">Команда отправляется устройству, а UI ждёт подтверждение по UDP.</p>
         </div>
         <div id="all-manual-controls" class="all-manual-controls hidden"></div>
         <p id="action-result" class="action-result"></p>
