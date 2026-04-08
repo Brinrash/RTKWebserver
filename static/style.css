@@ -703,3 +703,72 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Manipulator v2 (scoped, non-breaking for lamps page) --- */
+.manipulator-v2 {
+  max-width: 1240px;
+}
+
+.manipulator-v2 .manipulator-topbar {
+  align-items: center;
+}
+
+.manipulator-v2 .manipulator-main-card h2,
+.manipulator-v2 .card h2,
+.manipulator-v2 .card h3 {
+  margin-top: 0;
+}
+
+.manipulator-v2 .manipulator-main-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 16px;
+}
+
+.manipulator-v2 .manipulator-block {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  min-width: 0;
+}
+
+.manipulator-v2 .manipulator-commands {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.manipulator-v2 .builder-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.manipulator-v2 .buttons.align-end {
+  align-items: end;
+}
+
+.manipulator-v2 .meta-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.manipulator-v2 pre {
+  min-height: 84px;
+}
+
+.manipulator-v2 input,
+.manipulator-v2 select,
+.manipulator-v2 button {
+  width: 100%;
+}
+
+.manipulator-v2 .manipulator-secondary-grid {
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .manipulator-v2 .manipulator-main-grid,
+  .manipulator-v2 .layout-two-columns,
+  .manipulator-v2 .builder-grid,
+  .manipulator-v2 .meta-grid,
+  .manipulator-v2 .manipulator-commands {
+    grid-template-columns: 1fr;
+  }
+}
