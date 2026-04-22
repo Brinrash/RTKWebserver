@@ -847,3 +847,23 @@ html[data-theme="light"] .lamp-button.selected { outline-color: #2563eb; }
 #manual-mode-switch .btn {
   min-width: 180px;
 }
+
+/* constructor page */
+.constructor-page .builder-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.constructor-page #step-fields label {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.constructor-page #scenario-steps .program-item {
+  align-items: start;
+}
+
+.constructor-page #scenario-json-preview {
+  min-height: 140px;
+}
