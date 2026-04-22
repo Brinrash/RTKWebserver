@@ -319,6 +319,13 @@ def manipulator_page() -> str:
     return render_template("manipulator.html")
 
 
+
+
+@app.get("/constructor")
+def constructor_page() -> str:
+    return render_template("constructor.html")
+
+
 @app.get("/api/bootstrap")
 def api_bootstrap():
     return jsonify(system.bootstrap_payload())
