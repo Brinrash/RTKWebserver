@@ -256,13 +256,6 @@ class LampSystem:
             return
         self.get_controller(lamp_name).send_command(command)
 
-    def send_state(self, lamp_name: str, state: dict[str, bool]) -> None:
-        if lamp_name == "ALL":
-            for controller in self._all_controllers():
-                controller.send_state(state)
-            return
-        self.get_controller(lamp_name).send_state(state)
-
     def run_program(self, lamp_name: str, program: dict[str, object] | list[dict[str, object]]) -> None:
         runner = self.runners.get(lamp_name)
         if runner is None:
@@ -319,13 +312,6 @@ def manipulator_page() -> str:
     return render_template("manipulator.html")
 
 
-
-
-@app.get("/constructor")
-def constructor_page() -> str:
-    return render_template("constructor.html")
-
-
 @app.get("/api/bootstrap")
 def api_bootstrap():
     return jsonify(system.bootstrap_payload())
@@ -370,21 +356,6 @@ def api_delete_lamp(lamp_name: str):
 def api_send_command(lamp_name: str, command: str):
     system.send_command(lamp_name, command)
     return jsonify({"ok": True})
-
-
-
-
-@app.post("/api/lamp/<lamp_name>/state")
-def api_set_lamp_state(lamp_name: str):
-    payload = request.get_json(force=True, silent=False) or {}
-    state = {
-        "red": bool(payload.get("red", False)),
-        "blue": bool(payload.get("blue", False)),
-        "green": bool(payload.get("green", False)),
-        "yellow": bool(payload.get("yellow", False)),
-    }
-    system.send_state(lamp_name, state)
-    return jsonify({"ok": True, "lamp": lamp_name, "state": state})
 
 
 @app.post("/api/program/<lamp_name>/<program_name>")
@@ -502,4 +473,9 @@ def handle_connect():
 
 
 if __name__ == "__main__":
-    socketio.run(app, host=APP_HOST, port=APP_PORT)
+    socketio.run(
+        app,
+        host=APP_HOST,
+        port=APP_PORT,
+        allow_unsafe_werkzeug=True
+    )
