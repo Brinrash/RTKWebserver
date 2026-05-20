@@ -113,6 +113,7 @@ function renderActions() {
   dom.action.innerHTML = `
     <option value="short">Короткая команда</option>
     <option value="packet">Позиционный пакет</option>
+    <option value="telemetry">Телеметрия</option>
   `;
 }
 
@@ -160,6 +161,10 @@ function renderStepFields() {
     return;
   }
 
+  if (deviceType === "manipulator" && action === "telemetry") {
+    dom.fields.innerHTML = `<label>Действие<select id="field-manip-telemetry"><option value="start">start</option><option value="stop">stop</option></select></label>`;
+    return;
+  }
   dom.fields.innerHTML = `
     <label>Угол
       <input id="field-manip-angle" type="number" value="0" />
@@ -199,6 +204,8 @@ function addStep(event) {
     };
   } else if (baseStep.deviceType === 'manipulator' && baseStep.action === 'short') {
     payload = { command: document.getElementById('field-manip-short').value };
+  } else if (baseStep.deviceType === 'manipulator' && baseStep.action === 'telemetry') {
+    payload = { mode: document.getElementById('field-manip-telemetry').value };
   } else {
     payload = {
       angle: Number(document.getElementById('field-manip-angle').value || 0),
@@ -355,12 +362,18 @@ async function executeStep(step) {
     return;
   }
 
+  if (step.deviceType === "manipulator" && step.action === "telemetry") {
+    await apiRequest(step.payload.mode === "start" ? "/api/manipulator/telemetry/start" : "/api/manipulator/telemetry/stop", { method: "POST", body: { ...state.manipulatorDefaults } });
+    return;
+  }
+
   await apiRequest('/api/manipulator/packet', {
     method: 'POST',
     body: {
       angle: step.payload.angle,
       distance: step.payload.distance,
       marker: step.payload.marker,
+      dummy: 0,
       ...state.manipulatorDefaults
     }
   });
