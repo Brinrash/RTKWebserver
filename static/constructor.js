@@ -160,6 +160,10 @@ function renderStepFields() {
     return;
   }
 
+  if (deviceType === "manipulator" && action === "telemetry") {
+    dom.fields.innerHTML = `<label>Действие<select id="field-manip-telemetry"><option value="start">start</option><option value="stop">stop</option></select></label>`;
+    return;
+  }
   dom.fields.innerHTML = `
     <label>Угол
       <input id="field-manip-angle" type="number" value="0" />
@@ -199,6 +203,8 @@ function addStep(event) {
     };
   } else if (baseStep.deviceType === 'manipulator' && baseStep.action === 'short') {
     payload = { command: document.getElementById('field-manip-short').value };
+  } else if (baseStep.deviceType === 'manipulator' && baseStep.action === 'telemetry') {
+    payload = { mode: document.getElementById('field-manip-telemetry').value };
   } else {
     payload = {
       angle: Number(document.getElementById('field-manip-angle').value || 0),
@@ -337,6 +343,14 @@ async function executeStep(step) {
   }
 
   if (step.deviceType === 'lamp' && step.action === 'state') {
+
+    await apiRequest(`/api/lamp/${encodeURIComponent(step.target)}/command/${encodeURIComponent(step.payload.command)}`, {
+      method: 'POST'
+    });
+    return;
+  }
+
+  if (step.deviceType === 'lamp' && step.action === 'state') {
     await apiRequest(`/api/lamp/${encodeURIComponent(step.target)}/state`, {
       method: 'POST',
       body: step.payload
@@ -355,12 +369,18 @@ async function executeStep(step) {
     return;
   }
 
+  if (step.deviceType === "manipulator" && step.action === "telemetry") {
+    await apiRequest(step.payload.mode === "start" ? "/api/manipulator/telemetry/start" : "/api/manipulator/telemetry/stop", { method: "POST", body: { ...state.manipulatorDefaults } });
+    return;
+  }
+
   await apiRequest('/api/manipulator/packet', {
     method: 'POST',
     body: {
       angle: step.payload.angle,
       distance: step.payload.distance,
       marker: step.payload.marker,
+      dummy: 0,
       ...state.manipulatorDefaults
     }
   });
@@ -386,12 +406,7 @@ async function apiRequest(url, { method = 'GET', body = null } = {}) {
 
 function setResult(message, isError) {
   dom.result.textContent = message;
-  dom.result.classList.toggle('error', Boolean(isError));
-  dom.result.classList.toggle('ok', !isError);
 }
 
-function setStatus(message) {
-  dom.status.textContent = message;
-}
 
 bootstrap();
