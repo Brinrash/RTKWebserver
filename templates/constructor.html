@@ -25,7 +25,7 @@
         <p class="hint">Собирайте сценарии, где шаги для разных устройств выполняются последовательно.</p>
       </div>
       <div class="header-actions">
-        <button type="button" class="btn theme-toggle" data-theme-toggle>Светлая тема</button>
+        <button type="button" class="btn" data-settings-open>Настройки</button>
         <div class="status-pill" id="constructor-status">Готово</div>
       </div>
     </header>
@@ -100,8 +100,42 @@
       <pre id="scenario-json-preview"></pre>
     </section>
   </main>
+  <div id="global-settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="settings-modal-backdrop" data-settings-close></div>
+    <div class="settings-modal-card">
+      <div class="section-row">
+        <h2 id="settings-modal-title">Общие настройки</h2>
+        <button type="button" class="btn off" data-settings-close>Закрыть</button>
+      </div>
+      <form id="global-settings-form" class="program-form">
+        <div class="builder-grid">
+          <label>Тема
+            <select id="settings-theme">
+              <option value="dark">Тёмная</option>
+              <option value="light">Светлая</option>
+            </select>
+          </label>
+          <label>Server host<input id="settings-server-host" type="text" required /></label>
+          <label>Server port<input id="settings-server-port" type="number" min="1" max="65535" required /></label>
+          <label>UDP host<input id="settings-udp-host" type="text" required /></label>
+          <label>UDP port<input id="settings-udp-port" type="number" min="1" max="65535" required /></label>
+          <label>Manipulator host<input id="settings-manip-host" type="text" required /></label>
+          <label>Manipulator port<input id="settings-manip-port" type="number" min="1" max="65535" required /></label>
+          <label>Manipulator protocol
+            <select id="settings-manip-protocol"><option value="udp">UDP</option><option value="tcp">TCP</option></select>
+          </label>
+        </div>
+        <div class="buttons top-gap">
+          <button type="submit" class="btn">Сохранить</button>
+        </div>
+        <p class="hint" id="settings-save-hint"></p>
+      </form>
+    </div>
+  </div>
+
 
   <script src="/static/theme.js"></script>
   <script src="/static/constructor.js"></script>
+  <script src="/static/settings-menu.js"></script>
 </body>
 </html>
