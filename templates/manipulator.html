@@ -19,7 +19,6 @@
         <nav class="page-nav">
           <a href="/">Лампы</a>
           <a href="/manipulator" class="active">Манипулятор</a>
-          <a href="/constructor">Конструктор</a>
         </nav>
         <h1>Панель манипулятора</h1>
       </div>
@@ -120,8 +119,20 @@
         <div id="manipulator-limits" class="meta-grid"></div>
       </section>
     </section>
+
+    <section class="card">
+      <div class="section-row"><h2>Live Telemetry</h2><div id="manipulator-online" class="status-pill">OFFLINE</div></div>
+      <label>Активный манипулятор
+        <select id="manipulator-selector"></select>
+      </label>
+      <table class="table"><thead><tr><th>Axis</th><th>Angle</th><th>Temp</th><th>Load</th></tr></thead><tbody id="telemetry-body"></tbody></table>
+      <h3>Live log</h3>
+      <pre id="telemetry-log"></pre>
+    </section>
+
   </main>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script src="/static/theme.js"></script>
   <script src="/static/manipulator.js"></script>
 </body>
