@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import socket
 from threading import Lock
+from time import time
+from typing import Callable
 
 from .config import (
     MANIPULATOR_ABOVE_CARGO_Z,
@@ -22,9 +24,11 @@ from .logger import EventLogger
 
 
 class ManipulatorController:
-    def __init__(self, logger: EventLogger) -> None:
+    def __init__(self, logger: EventLogger, on_state_change: Callable[[dict[str, object]], None] | None = None) -> None:
         self._logger = logger
         self._lock = Lock()
+        self._on_state_change = on_state_change
+        self._state: dict[str, object] = {"online": False, "last_seen": None, "angles": [], "temperatures": [], "loads": []}
 
     def config_payload(self) -> dict[str, object]:
         return {
@@ -41,6 +45,7 @@ class ManipulatorController:
                 "above_cargo_z": MANIPULATOR_ABOVE_CARGO_Z,
             },
         }
+
 
     def resolve_target(
         self,
@@ -81,7 +86,7 @@ class ManipulatorController:
 
         return self.send_payload(normalized_command, host=host, port=port, protocol=protocol)
 
-    def build_packet(self, *, angle: int | str, distance: int | str, marker: int | str) -> str:
+    def build_packet(self, *, angle: int | str, distance: int | str, marker: int | str, dummy: int | str = 0) -> str:
         try:
             normalized_angle = int(angle)
         except (TypeError, ValueError) as error:
@@ -108,7 +113,12 @@ class ManipulatorController:
         if normalized_marker not in {0, 1}:
             raise ValueError("Маркер должен быть 0 или 1")
 
-        return f"p:{normalized_angle}:{normalized_distance}:{normalized_marker}#"
+        try:
+            normalized_dummy = int(dummy)
+        except (TypeError, ValueError) as error:
+            raise ValueError("dummy должен быть целым числом") from error
+
+        return f"p:{normalized_angle}:{normalized_distance}:{normalized_marker}:{normalized_dummy}#"
 
     def send_packet(
         self,
@@ -116,11 +126,12 @@ class ManipulatorController:
         angle: int | str,
         distance: int | str,
         marker: int | str,
+        dummy: int | str = 0,
         host: str | None = None,
         port: int | str | None = None,
         protocol: str | None = None,
     ) -> dict[str, object]:
-        packet = self.build_packet(angle=angle, distance=distance, marker=marker)
+        packet = self.build_packet(angle=angle, distance=distance, marker=marker, dummy=dummy)
         return self.send_payload(packet, host=host, port=port, protocol=protocol)
 
     def send_payload(
@@ -156,3 +167,18 @@ class ManipulatorController:
             "protocol": target_protocol,
             "payload": payload,
         }
+
+
+    def update_telemetry(self, telemetry: dict[str, object]) -> dict[str, object]:
+        with self._lock:
+            self._state.update(telemetry)
+            self._state["last_seen"] = telemetry.get("last_seen", time())
+            self._state["online"] = bool(telemetry.get("online", True))
+            snapshot = dict(self._state)
+        if self._on_state_change:
+            self._on_state_change(snapshot)
+        return snapshot
+
+    def get_state(self) -> dict[str, object]:
+        with self._lock:
+            return dict(self._state)
