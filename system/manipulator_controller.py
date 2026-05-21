@@ -168,7 +168,6 @@ class ManipulatorController:
             "payload": payload,
         }
 
-
     def update_telemetry(self, telemetry: dict[str, object]) -> dict[str, object]:
         with self._lock:
             self._state.update(telemetry)
