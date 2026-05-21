@@ -86,4 +86,5 @@ class ManipulatorMonitor:
 
             source_ip, _ = addr
             payload = data.decode("utf-8", errors="replace").strip()
+            print("UDP RX:", payload)
             self._on_telemetry(source_ip, payload)
