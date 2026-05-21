@@ -101,14 +101,10 @@
             </label>
           </div>
 
-          <div class="builder-grid">
-            <label>
-              Сохранённые манипуляторы
-              <select id="manipulator-saved-targets"></select>
-            </label>
-            <div class="buttons compact align-end">
-              <button type="button" id="save-manipulator-target" class="btn">Сохранить текущий</button>
-            </div>
+
+          <div class="buttons top-gap">
+              <button type="button" id="save-manipulator-target" class="btn">Сохранить манипулятор</button>
+              <label>Сохранённые цели<select id="manipulator-saved-targets"></select></label>
           </div>
         </form>
       </section>
@@ -120,15 +116,109 @@
       </section>
     </section>
 
-    <section class="card">
-      <div class="section-row"><h2>Live Telemetry</h2><div id="manipulator-online" class="status-pill">OFFLINE</div></div>
-      <label>Активный манипулятор
+    <section class="card manipulator-telemetry-card">
+
+  <div class="telemetry-header">
+
+    <div>
+
+      <h2>Live Telemetry</h2>
+
+      <label class="top-gap">
+        Активный манипулятор
+
         <select id="manipulator-selector"></select>
+
       </label>
-      <table class="table"><thead><tr><th>Axis</th><th>Angle</th><th>Temp</th><th>Load</th></tr></thead><tbody id="telemetry-body"></tbody></table>
-      <h3>Live log</h3>
-      <pre id="telemetry-log"></pre>
-    </section>
+
+    </div>
+
+    <div
+      id="manipulator-online"
+      class="status-pill offline"
+    >
+      OFFLINE
+    </div>
+
+  </div>
+
+
+  <table class="telemetry-table">
+
+    <thead>
+
+      <tr>
+        <th>Axis</th>
+        <th>Angle</th>
+        <th>Temp</th>
+        <th>Load</th>
+      </tr>
+
+    </thead>
+
+    <tbody id="telemetry-body">
+
+      <tr>
+        <td>1</td>
+        <td id="a1">0</td>
+        <td id="t1">0</td>
+        <td id="l1">0</td>
+      </tr>
+
+      <tr>
+        <td>2</td>
+        <td id="a2">0</td>
+        <td id="t2">0</td>
+        <td id="l2">0</td>
+      </tr>
+
+      <tr>
+        <td>3</td>
+        <td id="a3">0</td>
+        <td id="t3">0</td>
+        <td id="l3">0</td>
+      </tr>
+
+      <tr>
+        <td>4</td>
+        <td id="a4">0</td>
+        <td id="t4">0</td>
+        <td id="l4">0</td>
+      </tr>
+
+      <tr>
+        <td>5</td>
+        <td id="a5">0</td>
+        <td id="t5">0</td>
+        <td id="l5">0</td>
+      </tr>
+
+    </tbody>
+
+  </table>
+
+
+  <div class="telemetry-log-wrapper">
+
+    <div class="section-row">
+
+      <h3>Live Log</h3>
+
+      <div class="hint">
+        UDP telemetry packets
+      </div>
+
+    </div>
+
+    <div
+      id="telemetry-log"
+      class="telemetry-log"
+    ></div>
+
+  </div>
+
+</section>
+
 
   </main>
 
