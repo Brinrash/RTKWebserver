@@ -19,6 +19,10 @@ const dom = {
   angle: document.getElementById('manipulator-angle'),
   distance: document.getElementById('manipulator-distance'),
   marker: document.getElementById('manipulator-marker'),
+  selector: document.getElementById('manipulator-selector'),
+  online: document.getElementById('manipulator-online'),
+  telemetryBody: document.getElementById('telemetry-body'),
+  telemetryLog: document.getElementById('telemetry-log'),
   result: document.getElementById('manipulator-result'),
   preview: document.getElementById('manipulator-packet-preview'),
   targetPill: document.getElementById('manipulator-target'),
@@ -33,6 +37,9 @@ const state = {
 function bootstrap() {
   bindEvents();
   fetchConfig();
+  initSocket();
+  loadManipulators();
+  window.addEventListener("beforeunload", autoTelemetryStop);
 }
 
 function bindEvents() {
@@ -44,6 +51,7 @@ function bindEvents() {
   dom.angle.addEventListener('input', handlePacketDraftChange);
   dom.distance.addEventListener('input', handlePacketDraftChange);
   dom.marker.addEventListener('change', handlePacketDraftChange);
+  dom.selector?.addEventListener("change", refreshTelemetry);
 
   document.querySelectorAll('[data-manipulator-command]').forEach((button) => {
     button.addEventListener('click', () => sendShortCommand(button.dataset.manipulatorCommand));
@@ -69,16 +77,7 @@ async function fetchConfig() {
   } catch (_error) {
     setResult('Не удалось загрузить конфигурацию манипулятора.', true);
   }
-}
-
-function restoreForm(config) {
-  dom.host.value = localStorage.getItem(STORAGE_KEYS.host) || config.default_host || '';
-  dom.port.value = localStorage.getItem(STORAGE_KEYS.port) || config.default_port || '';
-  dom.protocol.value = localStorage.getItem(STORAGE_KEYS.protocol) || config.default_protocol || 'udp';
-  dom.angle.value = localStorage.getItem(STORAGE_KEYS.angle) || state.limits.min_rot || '';
-  dom.distance.value = localStorage.getItem(STORAGE_KEYS.distance) || state.limits.min_dist || '';
-  dom.marker.value = localStorage.getItem(STORAGE_KEYS.marker) || '0';
-}
+} // ← ВОТ ЭТОЙ СКОБКИ НЕ ХВАТАЕТ
 
 function restoreTargets() {
   const raw = localStorage.getItem(STORAGE_KEYS.targets);
@@ -88,6 +87,16 @@ function restoreTargets() {
     state.targets = [];
   }
   renderSavedTargets();
+}
+
+function restoreForm(config) {
+  dom.host.value = localStorage.getItem(STORAGE_KEYS.host) || config.default_host || '';
+  dom.port.value = localStorage.getItem(STORAGE_KEYS.port) || config.default_port || '';
+  dom.protocol.value = localStorage.getItem(STORAGE_KEYS.protocol) || config.default_protocol || 'udp';
+
+  dom.angle.value = localStorage.getItem(STORAGE_KEYS.angle) || config.limits?.min_rot || 0;
+  dom.distance.value = localStorage.getItem(STORAGE_KEYS.distance) || config.limits?.min_dist || 0;
+  dom.marker.value = localStorage.getItem(STORAGE_KEYS.marker) || 0;
 }
 
 function renderSavedTargets() {
@@ -205,7 +214,7 @@ function updateTargetPill() {
 }
 
 function updatePreview() {
-  dom.preview.textContent = `p:${dom.angle.value || '?'}:${dom.distance.value || '?'}:${dom.marker.value || '?'}#`;
+  dom.preview.textContent = `p:${dom.angle.value || '?'}:${dom.distance.value || '?'}:${dom.marker.value || '?'}:0#`;
 }
 
 function renderLimits() {
@@ -298,5 +307,60 @@ function setResult(message, isError) {
   dom.result.classList.toggle('error', Boolean(isError));
   dom.result.classList.toggle('ok', !isError);
 }
-
 bootstrap();
+
+
+
+async function loadManipulators() {
+  try {
+    const response = await fetch('/api/manipulators');
+    const payload = await response.json();
+    const items = payload.manipulators || [];
+    dom.selector.innerHTML = items.map((m) => `<option value="${m.id}">${m.name} (${m.id})</option>`).join('');
+    if (items.length) {
+      const first = items[0];
+
+      dom.host.value = first.host;
+      dom.port.value = first.command_port;
+      dom.protocol.value = first.protocol || 'udp';
+
+      persistTarget();
+      updateTargetPill();
+
+      await autoTelemetryStart();
+      refreshTelemetry();
+    }
+  } catch (_e) {}
+}
+
+function initSocket() {
+  const socket = io();
+  socket.on('manipulator_state', (data) => {
+    if (!dom.selector.value || dom.selector.value !== data.manipulator_id) return;
+    renderTelemetry(data);
+  });
+  socket.on('manipulator_raw', (data) => {
+    if (!dom.selector.value || dom.selector.value !== data.manipulator_id) return;
+    const line = `[${new Date().toLocaleTimeString()}] ${data.packet}`;
+    const lines = (dom.telemetryLog.textContent || '').split('\n').filter(Boolean);
+    lines.unshift(line);
+    dom.telemetryLog.textContent = lines.slice(0, 20).join('\n');
+  });
+}
+
+function renderTelemetry(data) {
+  dom.online.textContent = data.online ? 'ONLINE' : 'OFFLINE';
+  dom.online.classList.toggle('ok', !!data.online);
+  const rows = Array.from({ length: 5 }, (_, i) => `<tr><td>${i + 1}</td><td>${(data.angles || [])[i] ?? '-'}</td><td>${(data.temperatures || [])[i] ?? '-'}</td><td>${(data.loads || [])[i] ?? '-'}</td></tr>`);
+  dom.telemetryBody.innerHTML = rows.join('');
+}
+
+async function refreshTelemetry() {
+  if (!dom.selector.value) return;
+  const response = await fetch(`/api/manipulator/state?manipulator_id=${encodeURIComponent(dom.selector.value)}`);
+  const payload = await response.json();
+  renderTelemetry(payload);
+}
+
+async function autoTelemetryStart() { return apiRequest('/api/manipulator/telemetry/start', { method: 'POST', body: getTargetPayload() }); }
+async function autoTelemetryStop() { try { await apiRequest('/api/manipulator/telemetry/stop', { method: 'POST', body: getTargetPayload() }); } catch(_e){} }
