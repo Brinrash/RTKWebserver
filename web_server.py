@@ -17,6 +17,9 @@ from system.config import (
     MAX_LOG_LINES,
     SECRET_KEY,
     SOCKET_ASYNC_MODE,
+    MANIPULATOR_DEFAULT_HOST,
+    MANIPULATOR_DEFAULT_PORT,
+    MANIPULATOR_DEFAULT_PROTOCOL,
 )
 from system.lamp_controller import LampController, LampDefinition
 from system.lamp_monitor import LampMonitor
@@ -308,16 +311,18 @@ def _emit_ws(event: str, payload: dict[str, object]) -> None:
 
 manipulator_manager = ManipulatorManager(logger=logger, emit=_emit_ws)
 manipulator_manager.start()
+
 try:
     manipulator_manager.create(
-        name="Main manipulator",
-        host="192.168.254.118",
-        command_port=8888,
+        name="Palletizer Default",
+        host=MANIPULATOR_DEFAULT_HOST,
+        command_port=MANIPULATOR_DEFAULT_PORT,
         telemetry_port=9090,
-        protocol="udp"
+        protocol=MANIPULATOR_DEFAULT_PROTOCOL,
     )
 except ValueError:
     pass
+
 
 @app.get("/")
 def dashboard() -> str:
@@ -333,9 +338,6 @@ def manipulator_page() -> str:
 def api_bootstrap():
     return jsonify(system.bootstrap_payload())
 
-@app.get("/constructor")
-def constructor_page() -> str:
-    return render_template("constructor.html")
 
 @app.get("/api/lamps")
 def api_lamps():
@@ -520,6 +522,10 @@ def api_manipulator_raw():
 @app.post("/api/manipulator/telemetry/start")
 def api_manipulator_telemetry_start():
     payload = request.get_json(force=True, silent=False) or {}
+    print(
+        "START TELEMETRY:",
+        payload
+    )
     result = manipulator.send_short_command("r", host=payload.get("host"), port=payload.get("port"), protocol=payload.get("protocol"))
     return jsonify({"ok": True, **result})
 
