@@ -3,11 +3,14 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from time import time
+import re
 from typing import Callable
 
 from .logger import EventLogger
 from .manipulator_monitor import ManipulatorMonitor, ManipulatorTelemetryState
-
+from system.manipulator_logger import (
+    manipulator_logger
+)
 
 @dataclass(slots=True)
 class ManipulatorDefinition:
@@ -120,6 +123,8 @@ class ManipulatorManager:
     def _handle_telemetry(self, source_ip: str, payload: str) -> None:
         now = time()
         if payload:
+            manipulator_logger.info(payload)
+            self._logger.debug(f"Manipulator UDP payload: {payload}")
             packet_id = None
             parts = payload.rstrip("#").split(":")
             if len(parts) >= 2:
@@ -133,16 +138,67 @@ class ManipulatorManager:
                 state.last_seen = now
                 state.online = True
                 state.raw_packets.append(payload)
-                kind = parts[0] if parts else ""
-                values = [int(x) for x in parts[3:] if x.isdigit()]
-                if kind == "I":
-                    state.angles = values[:5]
-                elif kind == "T":
-                    state.temperatures = values[:5]
-                elif kind == "L":
-                    state.loads = values[:5]
-                snapshot = state.to_dict(target_id)
-            self._emit("manipulator_raw", {"manipulator_id": target_id, "packet": payload, "source_ip": source_ip, "timestamp": now})
+                kind = (parts[0] if parts else "").upper()
+                values = parts[3:]
+
+                clean = []
+
+                for value in values:
+
+                    value = (
+                        str(value)
+                        .replace("#", "")
+                        .strip()
+                    )
+
+                    if not value:
+                        continue
+
+                    try:
+                        clean.append(int(value))
+
+                    except ValueError:
+
+                        continue
+
+                # ==========================================
+                # ANGLES
+                # ==========================================
+
+                if kind.startswith("I"):
+
+                    state.angles = clean[:5]
+
+
+                # ==========================================
+                # TEMPERATURES
+                # ==========================================
+
+                elif kind.startswith("T"):
+
+                    state.temperatures = clean[::2][:5]
+
+
+                # ==========================================
+                # LOADS
+                # ==========================================
+
+                elif kind.startswith("L"):
+
+                    state.loads = clean[::2][:5]
+                snapshot = self._snapshot(
+                    self._items[target_id],
+                    state
+                )
+            self._emit(
+                "manipulator_log",
+                {
+                    "manipulator_id": target_id,
+                    "packet": payload,
+                    "source_ip": source_ip,
+                    "timestamp": now
+                }
+            )
             self._emit("manipulator_state", snapshot)
         self._check_stale(now)
 
