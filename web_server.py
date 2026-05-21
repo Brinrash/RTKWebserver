@@ -22,6 +22,7 @@ from system.lamp_controller import LampController, LampDefinition
 from system.lamp_monitor import LampMonitor
 from system.logger import EventLogger
 from system.manipulator_controller import ManipulatorController
+from system.manipulator_manager import ManipulatorManager
 from system.persistence import load_persistent_state, save_persistent_state
 from system.program_runner import ProgramRunner
 
@@ -302,6 +303,22 @@ logger.set_callback(system._broadcast_log)
 system.start()
 
 
+def _emit_ws(event: str, payload: dict[str, object]) -> None:
+    socketio.start_background_task(socketio.emit, event, payload)
+
+manipulator_manager = ManipulatorManager(logger=logger, emit=_emit_ws)
+manipulator_manager.start()
+try:
+    manipulator_manager.create(
+        name="Main manipulator",
+        host="192.168.254.118",
+        command_port=8888,
+        telemetry_port=9090,
+        protocol="udp"
+    )
+except ValueError:
+    pass
+
 @app.get("/")
 def dashboard() -> str:
     return render_template("dashboard.html")
@@ -316,6 +333,9 @@ def manipulator_page() -> str:
 def api_bootstrap():
     return jsonify(system.bootstrap_payload())
 
+@app.get("/constructor")
+def constructor_page() -> str:
+    return render_template("constructor.html")
 
 @app.get("/api/lamps")
 def api_lamps():
@@ -357,6 +377,24 @@ def api_send_command(lamp_name: str, command: str):
     system.send_command(lamp_name, command)
     return jsonify({"ok": True})
 
+
+
+
+@app.post("/api/lamp/<lamp_name>/state")
+def api_send_state(lamp_name: str):
+    payload = request.get_json(force=True, silent=False) or {}
+    state = {
+        "red": bool(payload.get("red", False)),
+        "yellow": bool(payload.get("yellow", False)),
+        "green": bool(payload.get("green", False)),
+        "blue": bool(payload.get("blue", False)),
+    }
+    if lamp_name == "ALL":
+        for lamp in system._all_controllers():
+            lamp.send_state(state)
+    else:
+        system.get_controller(lamp_name).send_state(state)
+    return jsonify({"ok": True})
 
 @app.post("/api/program/<lamp_name>/<program_name>")
 def api_run_program(lamp_name: str, program_name: str):
@@ -424,10 +462,72 @@ def api_manipulator_packet():
         angle=payload.get("angle"),
         distance=payload.get("distance"),
         marker=payload.get("marker"),
+        dummy=payload.get("dummy", 0),
         host=payload.get("host"),
         port=payload.get("port"),
         protocol=payload.get("protocol"),
     )
+    return jsonify({"ok": True, **result})
+
+
+@app.get("/api/manipulators")
+def api_manipulators():
+    return jsonify({"manipulators": manipulator_manager.list()})
+
+
+@app.post("/api/manipulators")
+def api_create_manipulator():
+    payload = request.get_json(force=True, silent=False) or {}
+    item = manipulator_manager.create(
+        name=str(payload.get("name", "")),
+        host=str(payload.get("host", "")).strip(),
+        command_port=int(payload.get("command_port", 8888)),
+        telemetry_port=int(payload.get("telemetry_port", 9090)),
+        protocol=str(payload.get("protocol", "udp")),
+    )
+    return jsonify({"ok": True, "manipulator": item}), 201
+
+
+@app.put("/api/manipulators/<manipulator_id>")
+def api_update_manipulator(manipulator_id: str):
+    payload = request.get_json(force=True, silent=False) or {}
+    item = manipulator_manager.update(manipulator_id, payload)
+    return jsonify({"ok": True, "manipulator": item})
+
+
+@app.delete("/api/manipulators/<manipulator_id>")
+def api_delete_manipulator(manipulator_id: str):
+    manipulator_manager.delete(manipulator_id)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/manipulator/state")
+def api_manipulator_state():
+    manipulator_id = request.args.get("manipulator_id", "")
+    if not manipulator_id:
+        return jsonify({"error": "manipulator_id обязателен"}), 400
+    return jsonify(manipulator_manager.state(manipulator_id))
+
+
+@app.get("/api/manipulator/raw")
+def api_manipulator_raw():
+    manipulator_id = request.args.get("manipulator_id", "")
+    if not manipulator_id:
+        return jsonify({"error": "manipulator_id обязателен"}), 400
+    return jsonify({"manipulator_id": manipulator_id, "packets": manipulator_manager.raw(manipulator_id)})
+
+
+@app.post("/api/manipulator/telemetry/start")
+def api_manipulator_telemetry_start():
+    payload = request.get_json(force=True, silent=False) or {}
+    result = manipulator.send_short_command("r", host=payload.get("host"), port=payload.get("port"), protocol=payload.get("protocol"))
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/api/manipulator/telemetry/stop")
+def api_manipulator_telemetry_stop():
+    payload = request.get_json(force=True, silent=False) or {}
+    result = manipulator.send_short_command("s", host=payload.get("host"), port=payload.get("port"), protocol=payload.get("protocol"))
     return jsonify({"ok": True, **result})
 
 
