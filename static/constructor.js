@@ -8,7 +8,8 @@ const state = {
   scenarios: {},
   running: false,
   stopRequested: false,
-  manipulatorDefaults: { host: '', port: '', protocol: 'udp' }
+  manipulatorDefaults: { host: '', port: '', protocol: 'udp', manipulator_id: '' },
+  manipulators: []
 };
 
 const dom = {
@@ -30,6 +31,7 @@ const dom = {
   stopScenario: document.getElementById('stop-scenario'),
   clearSteps: document.getElementById('clear-steps')
 };
+
 
 function bootstrap() {
   bindEvents();
@@ -60,19 +62,23 @@ function bindEvents() {
 
 async function loadConfig() {
   try {
-    const [bootstrapResponse, manipulatorResponse] = await Promise.all([
+    const [bootstrapResponse, manipulatorResponse, manipulatorsResponse] = await Promise.all([
       fetch('/api/bootstrap'),
-      fetch('/api/manipulator/config')
+      fetch('/api/manipulator/config'),
+      fetch('/api/manipulators')
     ]);
 
     const bootstrapPayload = await bootstrapResponse.json();
     const manipulatorConfig = await manipulatorResponse.json();
+    const manipulatorItems = (await manipulatorsResponse.json()).manipulators || [];
 
     state.lamps = (bootstrapPayload.lamps || []).map((lamp) => lamp.name);
+    state.manipulators = manipulatorItems;
     state.manipulatorDefaults = {
       host: manipulatorConfig.default_host || '',
       port: manipulatorConfig.default_port || '',
-      protocol: manipulatorConfig.default_protocol || 'udp'
+      protocol: manipulatorConfig.default_protocol || 'udp',
+      manipulator_id: manipulatorItems[0]?.id || ''
     };
 
     renderStepControls();
@@ -98,7 +104,8 @@ function renderTargets() {
     return;
   }
 
-  dom.target.innerHTML = '<option value="manipulator">Манипулятор</option>';
+  const options = state.manipulators.map((item) => `<option value="${item.id}">${item.name}</option>`);
+  dom.target.innerHTML = options.join('') || '<option value="">Манипуляторов нет</option>';
 }
 
 function renderActions() {
@@ -164,6 +171,20 @@ function renderStepFields() {
     dom.fields.innerHTML = `<label>Действие<select id="field-manip-telemetry"><option value="start">start</option><option value="stop">stop</option></select></label>`;
     return;
   }
+  if (deviceType === 'manipulator' && action === 'packet') {
+    const selected = state.manipulators.find((m) => m.id === dom.target.value);
+    const axes = Number(selected?.axes || 5);
+    if (axes === 6) {
+      dom.fields.innerHTML = `
+      <label>A1<input id="field-manip-a1" type="number" value="0" /></label>
+      <label>A2<input id="field-manip-a2" type="number" value="0" /></label>
+      <label>A3<input id="field-manip-a3" type="number" value="0" /></label>
+      <label>A4<input id="field-manip-a4" type="number" value="0" /></label>
+      <label>A5<input id="field-manip-a5" type="number" value="0" /></label>
+      <label>Маркер<select id="field-manip-marker"><option value="0">0</option><option value="1">1</option></select></label>`;
+      return;
+    }
+  }
   dom.fields.innerHTML = `
     <label>Угол
       <input id="field-manip-angle" type="number" value="0" />
@@ -206,11 +227,23 @@ function addStep(event) {
   } else if (baseStep.deviceType === 'manipulator' && baseStep.action === 'telemetry') {
     payload = { mode: document.getElementById('field-manip-telemetry').value };
   } else {
-    payload = {
-      angle: Number(document.getElementById('field-manip-angle').value || 0),
-      distance: Number(document.getElementById('field-manip-distance').value || 0),
-      marker: Number(document.getElementById('field-manip-marker').value || 0)
-    };
+    const selected = state.manipulators.find((m) => m.id === baseStep.target);
+    if (Number(selected?.axes || 5) === 6) {
+      payload = {
+        a1: Number(document.getElementById('field-manip-a1').value || 0),
+        a2: Number(document.getElementById('field-manip-a2').value || 0),
+        a3: Number(document.getElementById('field-manip-a3').value || 0),
+        a4: Number(document.getElementById('field-manip-a4').value || 0),
+        a5: Number(document.getElementById('field-manip-a5').value || 0),
+        marker: Number(document.getElementById('field-manip-marker').value || 0)
+      };
+    } else {
+      payload = {
+        angle: Number(document.getElementById('field-manip-angle').value || 0),
+        distance: Number(document.getElementById('field-manip-distance').value || 0),
+        marker: Number(document.getElementById('field-manip-marker').value || 0)
+      };
+    }
   }
 
   state.steps.push({ ...baseStep, payload });
@@ -363,14 +396,15 @@ async function executeStep(step) {
       method: 'POST',
       body: {
         command: step.payload.command,
-        ...state.manipulatorDefaults
+        ...state.manipulatorDefaults,
+        manipulator_id: step.target
       }
     });
     return;
   }
 
   if (step.deviceType === "manipulator" && step.action === "telemetry") {
-    await apiRequest(step.payload.mode === "start" ? "/api/manipulator/telemetry/start" : "/api/manipulator/telemetry/stop", { method: "POST", body: { ...state.manipulatorDefaults } });
+    await apiRequest(step.payload.mode === "start" ? "/api/manipulator/telemetry/start" : "/api/manipulator/telemetry/stop", { method: "POST", body: { ...state.manipulatorDefaults, manipulator_id: step.target } });
     return;
   }
 
@@ -380,8 +414,14 @@ async function executeStep(step) {
       angle: step.payload.angle,
       distance: step.payload.distance,
       marker: step.payload.marker,
+      a1: step.payload.a1,
+      a2: step.payload.a2,
+      a3: step.payload.a3,
+      a4: step.payload.a4,
+      a5: step.payload.a5,
       dummy: 0,
-      ...state.manipulatorDefaults
+      ...state.manipulatorDefaults,
+      manipulator_id: step.target
     }
   });
 }
@@ -407,6 +447,3 @@ async function apiRequest(url, { method = 'GET', body = null } = {}) {
 function setResult(message, isError) {
   dom.result.textContent = message;
 }
-
-
-bootstrap();
