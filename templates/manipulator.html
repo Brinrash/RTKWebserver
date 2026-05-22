@@ -28,11 +28,11 @@
       </div>
     </header>
 
-    <section class="card manipulator-main-card">
-      <div class="section-row">
-        <h2>Управление манипулятором</h2>
-        <div class="hint">Короткие команды и позиционный пакет</div>
-      </div>
+<section class="card manipulator-main-card">
+  <div class="section-row">
+    <h2>Управление манипулятором</h2>
+    <div class="hint">Короткие команды и позиционный пакет</div>
+  </div>
 
       <div class="manipulator-main-grid">
         <section class="manipulator-block">
@@ -49,23 +49,7 @@
         <section class="manipulator-block">
           <h3>Позиционный пакет</h3>
           <form id="manipulator-packet-form" class="program-form">
-            <div class="builder-grid">
-              <label>
-                Угол
-                <input id="manipulator-angle" type="number" required />
-              </label>
-              <label>
-                Дистанция
-                <input id="manipulator-distance" type="number" required />
-              </label>
-              <label>
-                Маркер
-                <select id="manipulator-marker">
-                  <option value="0">0 — опустить</option>
-                  <option value="1">1 — поднять</option>
-                </select>
-              </label>
-            </div>
+            <div class="builder-grid" id="manipulator-packet-fields"></div>
             <div class="buttons top-gap">
               <button type="button" class="btn off" data-axis-step="angle" data-step="-5">Угол -5</button>
               <button type="button" class="btn off" data-axis-step="angle" data-step="5">Угол +5</button>
@@ -110,9 +94,8 @@
       </section>
 
       <section class="card">
-        <h2>Статус и лимиты</h2>
+        <h2>Статус</h2>
         <p id="manipulator-result" class="action-result"></p>
-        <div id="manipulator-limits" class="meta-grid"></div>
       </section>
     </section>
 
@@ -157,41 +140,13 @@
     </thead>
 
     <tbody id="telemetry-body">
+      <tr><td>1</td><td id="a1">0</td><td id="t1">0</td><td id="l1">0</td></tr>
+      <tr><td>2</td><td id="a2">0</td><td id="t2">0</td><td id="l2">0</td></tr>
+      <tr><td>3</td><td id="a3">0</td><td id="t3">0</td><td id="l3">0</td></tr>
+      <tr><td>4</td><td id="a4">0</td><td id="t4">0</td><td id="l4">0</td></tr>
+      <tr><td>5</td><td id="a5">0</td><td id="t5">0</td><td id="l5">0</td></tr>
+      <tr><td>6</td><td id="a6">0</td><td id="t6">0</td><td id="l6">0</td></tr>
 
-      <tr>
-        <td>1</td>
-        <td id="a1">0</td>
-        <td id="t1">0</td>
-        <td id="l1">0</td>
-      </tr>
-
-      <tr>
-        <td>2</td>
-        <td id="a2">0</td>
-        <td id="t2">0</td>
-        <td id="l2">0</td>
-      </tr>
-
-      <tr>
-        <td>3</td>
-        <td id="a3">0</td>
-        <td id="t3">0</td>
-        <td id="l3">0</td>
-      </tr>
-
-      <tr>
-        <td>4</td>
-        <td id="a4">0</td>
-        <td id="t4">0</td>
-        <td id="l4">0</td>
-      </tr>
-
-      <tr>
-        <td>5</td>
-        <td id="a5">0</td>
-        <td id="t5">0</td>
-        <td id="l5">0</td>
-      </tr>
 
     </tbody>
 
@@ -218,6 +173,19 @@
   </div>
 
 </section>
+    <section class="card">
+      <h2>Добавить манипулятор</h2>
+      <form id="manipulator-create-form" class="program-form">
+        <div class="builder-grid">
+          <label>Имя<input id="new-manip-name" type="text" required /></label>
+          <label>Host<input id="new-manip-host" type="text" required /></label>
+          <label>Port<input id="new-manip-port" type="number" min="1" max="65535" value="8888" required /></label>
+          <label>Протокол<select id="new-manip-protocol"><option value="udp">UDP</option><option value="tcp">TCP</option></select></label>
+          <label>Оси<select id="new-manip-axes"><option value="5">5</option><option value="6">6</option></select></label>
+        </div>
+        <div class="buttons top-gap"><button type="submit" class="btn">Создать</button></div>
+      </form>
+    </section>
 
 
   </main>
