@@ -20,6 +20,7 @@ class ManipulatorDefinition:
     command_port: int
     telemetry_port: int = 9090
     protocol: str = "udp"
+    axes: int = 5
 
 
 class ManipulatorManager:
@@ -42,7 +43,7 @@ class ManipulatorManager:
         tail = host.split(".")[-1] if host else name.lower().replace(" ", "_")
         return f"manip_{tail}"
 
-    def create(self, *, name: str, host: str, command_port: int, telemetry_port: int = 9090, protocol: str = "udp") -> dict[str, object]:
+    def create(self, *, name: str, host: str, command_port: int, telemetry_port: int = 9090, protocol: str = "udp", axes: int = 5) -> dict[str, object]:
         manipulator_id = self._build_id(name, host)
         item = ManipulatorDefinition(
             id=manipulator_id,
@@ -51,7 +52,10 @@ class ManipulatorManager:
             command_port=int(command_port),
             telemetry_port=int(telemetry_port),
             protocol=protocol,
+            axes=int(axes),
         )
+        if item.axes not in {5, 6}:
+            raise ValueError("axes должен быть 5 или 6")
         with self._lock:
             if manipulator_id in self._items:
                 raise ValueError(f"Манипулятор {manipulator_id} уже существует")
@@ -69,6 +73,9 @@ class ManipulatorManager:
             item.command_port = int(payload.get("command_port", item.command_port))
             item.telemetry_port = int(payload.get("telemetry_port", item.telemetry_port))
             item.protocol = str(payload.get("protocol", item.protocol)).strip().lower()
+            item.axes = int(payload.get("axes", item.axes))
+            if item.axes not in {5, 6}:
+                raise ValueError("axes должен быть 5 или 6")
         return self.get(manipulator_id)
 
     def delete(self, manipulator_id: str) -> None:
@@ -83,6 +90,18 @@ class ManipulatorManager:
             item = self._items[manipulator_id]
             state = self._state[manipulator_id]
             return self._snapshot(item, state)
+
+    def resolve_target(self, manipulator_id: str | None = None) -> dict[str, object]:
+        with self._lock:
+            if manipulator_id:
+                item = self._items.get(manipulator_id)
+                if not item:
+                    raise KeyError(manipulator_id)
+                return self._snapshot(item, self._state[manipulator_id])
+            if not self._items:
+                raise KeyError("no_manipulators")
+            first_id = next(iter(self._items))
+            return self._snapshot(self._items[first_id], self._state[first_id])
 
     def list(self) -> list[dict[str, object]]:
         with self._lock:
@@ -106,6 +125,7 @@ class ManipulatorManager:
             "command_port": item.command_port,
             "telemetry_port": item.telemetry_port,
             "protocol": item.protocol,
+            "axes": item.axes,
         })
         return data
 
@@ -120,76 +140,121 @@ class ManipulatorManager:
                     return manipulator_id
         return None
 
-    def _handle_telemetry(self, source_ip: str, payload: str) -> None:
+    def _handle_telemetry(
+            self,
+            source_ip: str,
+            payload: str
+    ) -> None:
+
         now = time()
-        if payload:
+
+        try:
+
+            if not payload:
+                self._check_stale(now)
+
+                return
+
             manipulator_logger.info(payload)
-            self._logger.debug(f"Manipulator UDP payload: {payload}")
-            packet_id = None
-            parts = payload.rstrip("#").split(":")
-            if len(parts) >= 2:
-                packet_id = parts[1]
-            target_id = self._find_target(source_ip, packet_id)
+
+            self._logger.debug(
+                f"Manipulator UDP payload: {payload}"
+            )
+
+            parts = (
+                payload
+                .rstrip("#")
+                .split(":")
+            )
+
+            if len(parts) < 2:
+                return
+
+            packet_id = parts[1]
+
+            target_id = self._find_target(
+                source_ip,
+                packet_id
+            )
+
             if not target_id:
                 self._check_stale(now)
+
                 return
+
             with self._lock:
+
                 state = self._state[target_id]
+
                 state.last_seen = now
+
                 state.online = True
+
                 state.raw_packets.append(payload)
-                kind = (parts[0] if parts else "").upper()
-                values = parts[3:]
+
+                kind = (
+                    parts[0]
+                    .strip()
+                    .upper()
+                )
+
+                values = []
+
+                if len(parts) > 3:
+                    values = parts[3:]
 
                 clean = []
 
                 for value in values:
 
-                    value = (
-                        str(value)
-                        .replace("#", "")
-                        .strip()
-                    )
-
-                    if not value:
-                        continue
-
                     try:
+
+                        value = (
+                            str(value)
+                            .replace("#", "")
+                            .strip()
+                        )
+
+                        if not value:
+                            continue
+
                         clean.append(int(value))
 
-                    except ValueError:
+                    except Exception:
 
                         continue
 
-                # ==========================================
+                # =========================
                 # ANGLES
-                # ==========================================
+                # =========================
 
                 if kind.startswith("I"):
 
-                    state.angles = clean[:5]
+                    state.angles = clean[:6]
 
 
-                # ==========================================
+                # =========================
                 # TEMPERATURES
-                # ==========================================
+                # =========================
 
                 elif kind.startswith("T"):
 
-                    state.temperatures = clean[::2][:5]
+                    state.temperatures = clean[:6]
 
 
-                # ==========================================
+                # =========================
                 # LOADS
-                # ==========================================
+                # =========================
 
                 elif kind.startswith("L"):
 
-                    state.loads = clean[::2][:5]
+                    state.loads = clean[:6]
+
                 snapshot = self._snapshot(
                     self._items[target_id],
                     state
                 )
+
             self._emit(
                 "manipulator_log",
                 {
@@ -199,8 +264,21 @@ class ManipulatorManager:
                     "timestamp": now
                 }
             )
-            self._emit("manipulator_state", snapshot)
-        self._check_stale(now)
+
+            self._emit(
+                "manipulator_state",
+                snapshot
+            )
+
+        except Exception as error:
+
+            self._logger.error(
+                f"Manipulator telemetry error: {error}"
+            )
+
+        finally:
+
+            self._check_stale(now)
 
     def _check_stale(self, now: float | None = None) -> None:
         current = now or time()
