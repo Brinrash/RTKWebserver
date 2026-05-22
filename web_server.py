@@ -312,6 +312,18 @@ def _emit_ws(event: str, payload: dict[str, object]) -> None:
 manipulator_manager = ManipulatorManager(logger=logger, emit=_emit_ws)
 manipulator_manager.start()
 
+
+def _resolve_manipulator_target(payload: dict[str, object]) -> dict[str, object]:
+    manipulator_id = str(payload.get("manipulator_id", "")).strip()
+    item = manipulator_manager.resolve_target(manipulator_id if manipulator_id else None)
+    return {
+        "id": item["id"],
+        "host": str(payload.get("host") or item["host"]),
+        "port": int(payload.get("port") or item["command_port"]),
+        "protocol": str(payload.get("protocol") or item["protocol"]),
+        "axes": int(item.get("axes", 5)),
+    }
+
 try:
     manipulator_manager.create(
         name="Palletizer Default",
@@ -319,6 +331,7 @@ try:
         command_port=MANIPULATOR_DEFAULT_PORT,
         telemetry_port=9090,
         protocol=MANIPULATOR_DEFAULT_PROTOCOL,
+        axes=5,
     )
 except ValueError:
     pass
@@ -448,11 +461,12 @@ def api_manipulator_config():
 @app.post("/api/manipulator/command")
 def api_manipulator_command():
     payload = request.get_json(force=True, silent=False) or {}
+    target = _resolve_manipulator_target(payload)
     result = manipulator.send_short_command(
         str(payload.get("command", "")),
-        host=payload.get("host"),
-        port=payload.get("port"),
-        protocol=payload.get("protocol"),
+        host=target["host"],
+        port=target["port"],
+        protocol=target["protocol"],
     )
     return jsonify({"ok": True, **result})
 
@@ -460,21 +474,42 @@ def api_manipulator_command():
 @app.post("/api/manipulator/packet")
 def api_manipulator_packet():
     payload = request.get_json(force=True, silent=False) or {}
-    result = manipulator.send_packet(
-        angle=payload.get("angle"),
-        distance=payload.get("distance"),
-        marker=payload.get("marker"),
-        dummy=payload.get("dummy", 0),
-        host=payload.get("host"),
-        port=payload.get("port"),
-        protocol=payload.get("protocol"),
-    )
+    target = _resolve_manipulator_target(payload)
+    if target["axes"] == 6:
+        a1 = int(payload.get("a1", 0))
+        a2 = int(payload.get("a2", 0))
+        a3 = int(payload.get("a3", 0))
+        a4 = int(payload.get("a4", 0))
+        a5 = int(payload.get("a5", 0))
+        marker = int(payload.get("marker", 0))
+        if marker not in {0, 1}:
+            raise ValueError("marker должен быть 0 или 1")
+        result = manipulator.send_payload(
+            f"p:{a1}:{a2}:{a3}:{a4}:{a5}:{marker}#",
+            host=target["host"],
+            port=target["port"],
+            protocol=target["protocol"],
+        )
+    else:
+        result = manipulator.send_packet(
+            angle=payload.get("angle"),
+            distance=payload.get("distance"),
+            marker=payload.get("marker"),
+            dummy=payload.get("dummy", 0),
+            host=target["host"],
+            port=target["port"],
+            protocol=target["protocol"],
+        )
     return jsonify({"ok": True, **result})
 
 
 @app.get("/api/manipulators")
 def api_manipulators():
     return jsonify({"manipulators": manipulator_manager.list()})
+
+@app.get("/api/manipulators/<manipulator_id>")
+def api_get_manipulator(manipulator_id: str):
+    return jsonify({"manipulator": manipulator_manager.get(manipulator_id)})
 
 
 @app.post("/api/manipulators")
@@ -486,6 +521,7 @@ def api_create_manipulator():
         command_port=int(payload.get("command_port", 8888)),
         telemetry_port=int(payload.get("telemetry_port", 9090)),
         protocol=str(payload.get("protocol", "udp")),
+        axes=int(payload.get("axes", 5)),
     )
     return jsonify({"ok": True, "manipulator": item}), 201
 
@@ -522,18 +558,16 @@ def api_manipulator_raw():
 @app.post("/api/manipulator/telemetry/start")
 def api_manipulator_telemetry_start():
     payload = request.get_json(force=True, silent=False) or {}
-    print(
-        "START TELEMETRY:",
-        payload
-    )
-    result = manipulator.send_short_command("r", host=payload.get("host"), port=payload.get("port"), protocol=payload.get("protocol"))
+    target = _resolve_manipulator_target(payload)
+    result = manipulator.send_short_command("r", host=target["host"], port=target["port"], protocol=target["protocol"])
     return jsonify({"ok": True, **result})
 
 
 @app.post("/api/manipulator/telemetry/stop")
 def api_manipulator_telemetry_stop():
     payload = request.get_json(force=True, silent=False) or {}
-    result = manipulator.send_short_command("s", host=payload.get("host"), port=payload.get("port"), protocol=payload.get("protocol"))
+    target = _resolve_manipulator_target(payload)
+    result = manipulator.send_short_command("s", host=target["host"], port=target["port"], protocol=target["protocol"])
     return jsonify({"ok": True, **result})
 
 
