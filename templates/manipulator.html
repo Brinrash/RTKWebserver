@@ -63,41 +63,6 @@
       </div>
     </section>
 
-    <section class="layout-two-columns manipulator-secondary-grid">
-      <section class="card">
-        <h2>Подключение</h2>
-        <form id="manipulator-target-form" class="program-form">
-          <div class="builder-grid">
-            <label>
-              IP / host
-              <input id="manipulator-host" type="text" placeholder="192.168.254.120" required />
-            </label>
-            <label>
-              Порт
-              <input id="manipulator-port" type="number" min="1" max="65535" required />
-            </label>
-            <label>
-              Протокол
-              <select id="manipulator-protocol">
-                <option value="udp">UDP</option>
-                <option value="tcp">TCP</option>
-              </select>
-            </label>
-          </div>
-
-
-          <div class="buttons top-gap">
-              <button type="button" id="save-manipulator-target" class="btn">Сохранить манипулятор</button>
-              <label>Сохранённые цели<select id="manipulator-saved-targets"></select></label>
-          </div>
-        </form>
-      </section>
-
-      <section class="card">
-        <h2>Статус</h2>
-        <p id="manipulator-result" class="action-result"></p>
-      </section>
-    </section>
 
     <section class="card manipulator-telemetry-card">
 
@@ -155,15 +120,42 @@
 
   <div class="telemetry-log-wrapper">
 
-    <div class="section-row">
+      <div class="section-row">
 
-      <h3>Live Log</h3>
+  <h3>Live Log</h3>
 
-      <div class="hint">
-        UDP telemetry packets
-      </div>
+  <div
+    style="
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    "
+  >
 
+    <button
+      type="button"
+      class="btn secondary"
+      id="manip-clear-log"
+    >
+      Очистить
+    </button>
+
+    <button
+      type="button"
+      class="btn secondary active"
+      id="manip-record-toggle"
+    >
+      RECORD ON
+    </button>
+
+    <div class="hint">
+      UDP telemetry packets
     </div>
+
+  </div>
+
+</div>
 
     <div
       id="telemetry-log"
@@ -174,23 +166,40 @@
 
 </section>
     <section class="card">
-      <h2>Добавить манипулятор</h2>
-      <form id="manipulator-create-form" class="program-form">
+      <h2>Манипуляторы: добавление / редактирование / удаление</h2>
+      <p id="manipulator-result" class="action-result"></p>
+      <form id="manipulator-edit-form" class="program-form">
         <div class="builder-grid">
-          <label>Имя<input id="new-manip-name" type="text" required /></label>
-          <label>Host<input id="new-manip-host" type="text" required /></label>
-          <label>Port<input id="new-manip-port" type="number" min="1" max="65535" value="8888" required /></label>
-          <label>Протокол<select id="new-manip-protocol"><option value="udp">UDP</option><option value="tcp">TCP</option></select></label>
-          <label>Оси<select id="new-manip-axes"><option value="5">5</option><option value="6">6</option></select></label>
+          <label>Имя<input id="edit-manip-name" type="text" required /></label>
+          <label>Host<input id="edit-manip-host" type="text" required /></label>
+          <label>Port управления<input id="edit-manip-port" type="number" min="1" max="65535" value="8888" required /></label>
+          <label>Port телеметрии<input id="edit-manip-telemetry-port" type="number" min="1" max="65535" value="9090" required /></label>
+          <label>Протокол<select id="edit-manip-protocol"><option value="udp">UDP</option><option value="tcp">TCP</option></select></label>
+          <label>Оси<select id="edit-manip-axes"><option value="5">5</option><option value="6">6</option></select></label>
         </div>
-        <div class="buttons top-gap"><button type="submit" class="btn">Создать</button></div>
+        <div class="buttons top-gap">
+          <button type="button" class="btn" id="manipulator-create-btn">Добавить новый</button>
+          <button type="submit" class="btn">Сохранить изменения</button>
+          <button type="button" class="btn off" id="manipulator-delete-btn">Удалить</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Связанная программа лампа+манипулятор (JSON)</h2>
+      <form id="combo-program-form" class="program-form">
+        <label>
+          JSON steps
+          <textarea id="combo-program-json" rows="8">[{"type":"lamp","lamp":"ALL","command":"redOn","delay":0.5},{"type":"manipulator","command":"r","delay":0.2}]</textarea>
+        </label>
+        <div class="buttons top-gap"><button type="submit" class="btn">Запустить JSON</button></div>
       </form>
     </section>
 
 
   </main>
 
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="/static/theme.js"></script>
   <script src="/static/manipulator.js"></script>
 </body>
