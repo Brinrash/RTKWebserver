@@ -97,23 +97,55 @@ function renderStepControls() {
 }
 
 function renderTargets() {
-  if (dom.deviceType.value === 'lamp') {
-    const options = ['<option value="ALL">ALL (все лампы)</option>']
-      .concat(state.lamps.map((name) => `<option value="${name}">${name}</option>`));
+    if (dom.deviceType.value === 'lamp') {
+
+    const options = [
+      '<option value="ALL">ALL (все лампы)</option>',
+      ...state.lamps.map(
+        lamp => `<option value="${lamp}">${lamp}</option>`
+      )
+    ];
+
     dom.target.innerHTML = options.join('');
     return;
   }
+    if (dom.deviceType.value === 'wait') {
+
+      const options = state.manipulators.map(
+        (item) =>
+          `<option value="${item.id}">
+            ${item.name}
+          </option>`
+      );
+
+      dom.target.innerHTML =
+        options.join('');
+
+      return;
+    }
 
   const options = state.manipulators.map((item) => `<option value="${item.id}">${item.name}</option>`);
   dom.target.innerHTML = options.join('') || '<option value="">Манипуляторов нет</option>';
 }
 
 function renderActions() {
-  if (dom.deviceType.value === 'lamp') {
+    if (dom.deviceType.value === 'lamp') {
+
     dom.action.innerHTML = `
       <option value="command">Команда</option>
-      <option value="state">Состояние (несколько цветов)</option>
+      <option value="state">Состояние</option>
     `;
+
+    return;
+  }
+  if (dom.deviceType.value === 'wait') {
+
+    dom.action.innerHTML = `
+      <option value="position">
+        Положение достигнуто
+      </option>
+    `;
+
     return;
   }
 
@@ -126,7 +158,50 @@ function renderActions() {
 function renderStepFields() {
   const deviceType = dom.deviceType.value;
   const action = dom.action.value;
+  if (deviceType === 'wait') {
 
+    dom.fields.innerHTML = `
+      <label>
+        Ось
+        <input
+          id="wait-axis"
+          type="number"
+          min="1"
+          max="6"
+          value="1"
+        />
+      </label>
+  
+      <label>
+        Цель
+        <input
+          id="wait-target"
+          type="number"
+          value="180"
+        />
+      </label>
+  
+      <label>
+        Допуск
+        <input
+          id="wait-tolerance"
+          type="number"
+          value="5"
+        />
+      </label>
+  
+      <label>
+        Таймаут (сек)
+        <input
+          id="wait-timeout"
+          type="number"
+          value="15"
+        />
+      </label>
+    `;
+
+    return;
+  }
   if (deviceType === 'lamp' && action === 'command') {
     dom.fields.innerHTML = `
       <label>Команда
@@ -212,6 +287,39 @@ function addStep(event) {
   };
 
   let payload = {};
+  if (baseStep.deviceType === 'wait') {
+
+    payload = {
+
+      axis:
+        Number(
+          document.getElementById(
+            'wait-axis'
+          ).value
+        ),
+
+      target:
+        Number(
+          document.getElementById(
+            'wait-target'
+          ).value
+        ),
+
+      tolerance:
+        Number(
+          document.getElementById(
+            'wait-tolerance'
+          ).value
+        ),
+
+      timeout:
+        Number(
+          document.getElementById(
+            'wait-timeout'
+          ).value
+        )
+    };
+  }
 
   if (baseStep.deviceType === 'lamp' && baseStep.action === 'command') {
     payload = { command: document.getElementById('field-lamp-command').value };
@@ -246,7 +354,10 @@ function addStep(event) {
     }
   }
 
-  state.steps.push({ ...baseStep, payload });
+state.steps.push({
+  ...baseStep,
+  payload
+});
   renderSteps();
 }
 
@@ -368,6 +479,58 @@ async function runScenario() {
 }
 
 async function executeStep(step) {
+
+  if (step.deviceType === 'wait') {
+
+    const started = Date.now();
+
+    while (true) {
+
+      if (state.stopRequested) {
+        throw new Error(
+          'Остановлено пользователем'
+        );
+      }
+
+      const telemetry =
+        await apiRequest(
+          `/api/manipulator/state?manipulator_id=${encodeURIComponent(
+            step.target
+          )}`
+        );
+
+      const axis =
+        Number(
+          step.payload.axis
+        ) - 1;
+
+      const angle =
+        telemetry.angles?.[axis];
+
+      if (
+        angle !== undefined &&
+        Math.abs(
+          angle -
+          step.payload.target
+        ) <= step.payload.tolerance
+      ) {
+
+        return;
+      }
+
+      if (
+        Date.now() - started >
+        step.payload.timeout * 1000
+      ) {
+
+        throw new Error(
+          `Таймаут ожидания оси ${step.payload.axis}`
+        );
+      }
+
+      await sleep(100);
+    }
+}
   if (step.deviceType === 'lamp' && step.action === 'command') {
     await apiRequest(`/api/lamp/${encodeURIComponent(step.target)}/command/${encodeURIComponent(step.payload.command)}`, {
       method: 'POST'
@@ -376,18 +539,13 @@ async function executeStep(step) {
   }
 
   if (step.deviceType === 'lamp' && step.action === 'state') {
-
-    await apiRequest(`/api/lamp/${encodeURIComponent(step.target)}/command/${encodeURIComponent(step.payload.command)}`, {
-      method: 'POST'
-    });
-    return;
-  }
-
-  if (step.deviceType === 'lamp' && step.action === 'state') {
-    await apiRequest(`/api/lamp/${encodeURIComponent(step.target)}/state`, {
-      method: 'POST',
-      body: step.payload
-    });
+    await apiRequest(
+      `/api/lamp/${encodeURIComponent(step.target)}/state`,
+      {
+        method: 'POST',
+        body: step.payload
+      }
+    );
     return;
   }
 
