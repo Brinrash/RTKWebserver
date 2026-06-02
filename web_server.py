@@ -26,6 +26,7 @@ from system.lamp_monitor import LampMonitor
 from system.logger import EventLogger
 from system.manipulator_controller import ManipulatorController
 from system.manipulator_manager import ManipulatorManager
+from system.manipulator_monitor import ManipulatorMonitor
 from system.persistence import load_persistent_state, save_persistent_state
 from system.program_runner import ProgramRunner
 
@@ -313,6 +314,7 @@ manipulator_manager = ManipulatorManager(logger=logger, emit=_emit_ws)
 manipulator_manager.start()
 
 
+
 def _resolve_manipulator_target(payload: dict[str, object]) -> dict[str, object]:
     manipulator_id = str(payload.get("manipulator_id", "")).strip()
     item = manipulator_manager.resolve_target(manipulator_id if manipulator_id else None)
@@ -570,6 +572,46 @@ def api_manipulator_telemetry_stop():
     result = manipulator.send_short_command("s", host=target["host"], port=target["port"], protocol=target["protocol"])
     return jsonify({"ok": True, **result})
 
+
+
+
+@app.post("/api/program/combined/run")
+def api_run_combined_program():
+    payload = request.get_json(force=True, silent=False) or {}
+    manipulator_target = _resolve_manipulator_target(payload)
+    program = payload.get("program", [])
+    if not isinstance(program, list) or not program:
+        raise ValueError("program должен быть непустым JSON-массивом")
+
+    for step in program:
+        if not isinstance(step, dict):
+            continue
+        step_type = str(step.get("type", "")).strip().lower()
+        delay = float(step.get("delay", 0) or 0)
+        if step_type == "lamp":
+            lamp = str(step.get("lamp", "ALL"))
+            command = str(step.get("command", "")).strip()
+            if command:
+                system.send_command(lamp, command)
+        elif step_type == "manipulator":
+            if "payload" in step:
+                manipulator.send_payload(
+                    str(step.get("payload", "")),
+                    host=manipulator_target["host"],
+                    port=manipulator_target["port"],
+                    protocol=manipulator_target["protocol"],
+                )
+            elif "command" in step:
+                manipulator.send_short_command(
+                    str(step.get("command", "")),
+                    host=manipulator_target["host"],
+                    port=manipulator_target["port"],
+                    protocol=manipulator_target["protocol"],
+                )
+        if delay > 0:
+            socketio.sleep(delay)
+
+    return jsonify({"ok": True})
 
 @app.post("/api/logs/debug/<mode>")
 def api_toggle_debug(mode: str):
