@@ -14,7 +14,7 @@ const state = {
   rules: [],
   axes: 5,
   recordTelemetry: true,
-  packet: { angle: 180, distance: 220, marker: 1, gripper: 0, a1: 180, a2: 220, a3: 0, a4: 0, a5: 0 },
+  packet: { angle: 180, distance: 220, head_angle: 0, lifted: 0, marker: 1, gripper: 0 },
 };
 
 const dom = {
@@ -118,7 +118,7 @@ function loadDrafts() {
 
 function packetPreviewPayload() {
   if (state.axes === 6) {
-    return `p:${state.packet.a1}:${state.packet.a2}:${state.packet.a3}:${state.packet.a4}:${state.packet.a5}:${state.packet.marker}#`;
+    return `g:${state.packet.angle}:${state.packet.distance}:${state.packet.head_angle}:${state.packet.lifted}:${state.packet.gripper}`;
   }
   return `p:${state.packet.angle}:${state.packet.distance}:${state.packet.marker}:${state.packet.gripper}#`;
 }
@@ -126,7 +126,7 @@ function packetPreviewPayload() {
 function renderPacketFields() {
   if (!dom.packetFields) return;
   const fields = state.axes === 6
-    ? [['a1', 'A1 / angle'], ['a2', 'A2 / distance'], ['a3', 'A3'], ['a4', 'A4'], ['a5', 'A5'], ['marker', 'Marker']]
+    ? [['angle', 'Угол поворота'], ['distance', 'Расстояние'], ['head_angle', 'Угол поворота головы'], ['lifted', 'Поднят / опущен (0/1)'], ['gripper', 'Захват закрыт / открыт (0/1)']]
     : [['angle', 'Angle'], ['distance', 'Distance'], ['marker', 'Marker'], ['gripper', 'Gripper']];
   dom.packetFields.innerHTML = fields.map(([key, label]) => `
     <label>${label}<input data-packet-field="${key}" type="number" value="${state.packet[key] ?? 0}" /></label>
@@ -152,7 +152,7 @@ async function sendShortCommand(command) {
 
 async function sendPacket() {
   const body = state.axes === 6
-    ? { a1: state.packet.a1, a2: state.packet.a2, a3: state.packet.a3, a4: state.packet.a4, a5: state.packet.a5, marker: state.packet.marker, gripper: state.packet.gripper, ...getTargetPayload() }
+    ? { angle: state.packet.angle, distance: state.packet.distance, head_angle: state.packet.head_angle, lifted: state.packet.lifted, gripper: state.packet.gripper, ...getTargetPayload() }
     : { angle: state.packet.angle, distance: state.packet.distance, marker: state.packet.marker, gripper: state.packet.gripper, ...getTargetPayload() };
   const response = await apiRequest('/api/manipulator/packet', { method: 'POST', body });
   setResult(`Позиционная команда отправлена: ${response.payload}`);
@@ -163,27 +163,44 @@ async function loadManipulators() {
   state.manipulators = payload.manipulators || [];
   if (!state.manipulators.length) return;
   const previous = state.selectedManipulatorId;
+  const selectedStillExists = state.manipulators.some((m) => m.id === previous);
+  const nextSelected = selectedStillExists ? previous : state.manipulators[0].id;
+  const selectedChanged = nextSelected !== previous;
   dom.selector.innerHTML = state.manipulators.map((m) => `<option value="${m.id}">${m.name}</option>`).join('');
-  state.selectedManipulatorId = state.manipulators.some((m) => m.id === previous) ? previous : state.manipulators[0].id;
+  state.selectedManipulatorId = nextSelected;
   dom.selector.value = state.selectedManipulatorId;
-  await onManipulatorSelect();
+  if (selectedChanged || !state.editDirty) {
+    await onManipulatorSelect({ preserveEditForm: !selectedChanged && state.editDirty });
+  } else {
+    updateTargetPillFromInventory();
+  }
 }
 
-async function onManipulatorSelect() {
+async function onManipulatorSelect(options = {}) {
   state.selectedManipulatorId = dom.selector.value;
   localStorage.setItem(STORAGE.selectedManipulator, state.selectedManipulatorId);
   const response = await apiRequest(`/api/manipulators/${encodeURIComponent(state.selectedManipulatorId)}`);
   const manip = response.manipulator;
   state.axes = Number(manip.axes || 5);
-  if (dom.name) dom.name.value = manip.name || '';
-  if (dom.host) dom.host.value = manip.host || '';
-  if (dom.port) dom.port.value = manip.command_port || 8888;
-  if (dom.telemetryPort) dom.telemetryPort.value = manip.telemetry_port || 9090;
-  if (dom.protocol) dom.protocol.value = manip.protocol || 'udp';
-  if (dom.axes) dom.axes.value = String(state.axes);
+  if (!options.preserveEditForm) {
+    if (dom.name) dom.name.value = manip.name || '';
+    if (dom.host) dom.host.value = manip.host || '';
+    if (dom.port) dom.port.value = manip.command_port || 8888;
+    if (dom.telemetryPort) dom.telemetryPort.value = manip.telemetry_port || 9090;
+    if (dom.protocol) dom.protocol.value = manip.protocol || 'udp';
+    if (dom.axes) dom.axes.value = String(state.axes);
+    state.editDirty = false;
+  }
   if (dom.targetPill) dom.targetPill.textContent = `${manip.name} • ${manip.host}:${manip.command_port} • ${state.axes} осей`;
   renderPacketFields();
   await Promise.all([loadZones(), loadRules()]);
+}
+
+function updateTargetPillFromInventory() {
+  const manip = state.manipulators.find((item) => item.id === state.selectedManipulatorId);
+  if (manip && dom.targetPill) {
+    dom.targetPill.textContent = `${manip.name} • ${manip.host}:${manip.command_port} • ${manip.axes || state.axes} осей`;
+  }
 }
 
 async function loadZones() {
@@ -246,13 +263,14 @@ function bindButtons() {
     try { await sendShortCommand(btn.dataset.manipulatorCommand); } catch (error) { setResult(error.message, true); }
   }));
   document.querySelectorAll('[data-axis-step]').forEach((btn) => btn.addEventListener('click', () => {
-    const key = state.axes === 6 && btn.dataset.axisStep === 'angle' ? 'a1' : state.axes === 6 ? 'a2' : btn.dataset.axisStep;
+    const key = btn.dataset.axisStep;
     state.packet[key] = Number(state.packet[key] || 0) + Number(btn.dataset.step || 0);
     renderPacketFields();
     savePacketDraft();
   }));
   dom.packetForm?.addEventListener('submit', async (event) => { event.preventDefault(); try { await sendPacket(); } catch (error) { setResult(error.message, true); } });
-  dom.selector?.addEventListener('change', onManipulatorSelect);
+  dom.selector?.addEventListener('change', () => { state.editDirty = false; onManipulatorSelect(); });
+  dom.editForm?.addEventListener('input', () => { state.editDirty = true; });
 
   document.getElementById('manip-record-toggle')?.addEventListener('click', (event) => {
     state.recordTelemetry = !state.recordTelemetry;
@@ -264,16 +282,17 @@ function bindButtons() {
     try {
       const response = await apiRequest('/api/manipulators', { method: 'POST', body: editPayload() });
       state.selectedManipulatorId = response.manipulator.id;
+      state.editDirty = false;
       await loadManipulators();
       setResult('Манипулятор добавлен');
     } catch (error) { setResult(error.message, true); }
   });
   dom.editForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    try { await apiRequest(`/api/manipulators/${encodeURIComponent(state.selectedManipulatorId)}`, { method: 'PUT', body: editPayload() }); await loadManipulators(); setResult('Манипулятор сохранён'); } catch (error) { setResult(error.message, true); }
+    try { await apiRequest(`/api/manipulators/${encodeURIComponent(state.selectedManipulatorId)}`, { method: 'PUT', body: editPayload() }); state.editDirty = false; await loadManipulators(); setResult('Манипулятор сохранён'); } catch (error) { setResult(error.message, true); }
   });
   dom.deleteBtn?.addEventListener('click', async () => {
-    try { await apiRequest(`/api/manipulators/${encodeURIComponent(state.selectedManipulatorId)}`, { method: 'DELETE' }); state.selectedManipulatorId = ''; await loadManipulators(); setResult('Манипулятор удалён'); } catch (error) { setResult(error.message, true); }
+    try { await apiRequest(`/api/manipulators/${encodeURIComponent(state.selectedManipulatorId)}`, { method: 'DELETE' }); state.selectedManipulatorId = ''; state.editDirty = false; await loadManipulators(); setResult('Манипулятор удалён'); } catch (error) { setResult(error.message, true); }
   });
 }
 
