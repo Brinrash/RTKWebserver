@@ -353,6 +353,16 @@ def _remember_payload_position(manipulator_id: str, payload: str) -> None:
                 "gripper": int(parts[4]) if len(parts) == 5 else 0,
             },
         )
+    elif len(parts) == 6 and parts[0] == "g":
+        system.automation.set_last_position(
+            manipulator_id,
+            {
+                "angle": int(parts[1]),
+                "distance": int(parts[2]),
+                "marker": int(parts[4]),
+                "gripper": int(parts[5]),
+            },
+        )
 
 try:
     manipulator_manager.create(
@@ -506,24 +516,24 @@ def api_manipulator_packet():
     payload = request.get_json(force=True, silent=False) or {}
     target = _resolve_manipulator_target(payload)
     if target["axes"] == 6:
-        a1 = int(payload.get("a1", payload.get("angle", 0)))
-        a2 = int(payload.get("a2", payload.get("distance", 0)))
-        a3 = int(payload.get("a3", 0))
-        a4 = int(payload.get("a4", 0))
-        a5 = int(payload.get("a5", 0))
-        marker = int(payload.get("marker", 0))
-        gripper = int(payload.get("gripper", payload.get("dummy", 0)))
-        if marker not in {0, 1}:
-            raise ValueError("marker должен быть 0 или 1")
+        angle = int(payload.get("angle", payload.get("a1", 0)))
+        distance = int(payload.get("distance", payload.get("a2", 0)))
+        head_angle = int(payload.get("head_angle", payload.get("a3", 0)))
+        lifted = int(payload.get("lifted", payload.get("a4", 0)))
+        gripper = int(payload.get("gripper", payload.get("a5", payload.get("dummy", 0))))
+        if lifted not in {0, 1}:
+            raise ValueError("lifted должен быть 0 или 1")
+        if gripper not in {0, 1}:
+            raise ValueError("gripper должен быть 0 или 1")
         result = manipulator.send_payload(
-            f"p:{a1}:{a2}:{a3}:{a4}:{a5}:{marker}#",
+            f"g:{angle}:{distance}:{head_angle}:{lifted}:{gripper}",
             host=target["host"],
             port=target["port"],
             protocol=target["protocol"],
         )
         system.automation.set_last_position(
             str(target["id"]),
-            {"angle": a1, "distance": a2, "marker": marker, "gripper": gripper},
+            {"angle": angle, "distance": distance, "marker": lifted, "gripper": gripper},
         )
     else:
         result = manipulator.send_packet(
