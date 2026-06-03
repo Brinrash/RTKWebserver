@@ -251,12 +251,11 @@ function renderStepFields() {
     const axes = Number(selected?.axes || 5);
     if (axes === 6) {
       dom.fields.innerHTML = `
-      <label>A1<input id="field-manip-a1" type="number" value="0" /></label>
-      <label>A2<input id="field-manip-a2" type="number" value="0" /></label>
-      <label>A3<input id="field-manip-a3" type="number" value="0" /></label>
-      <label>A4<input id="field-manip-a4" type="number" value="0" /></label>
-      <label>A5<input id="field-manip-a5" type="number" value="0" /></label>
-      <label>Маркер<select id="field-manip-marker"><option value="0">0</option><option value="1">1</option></select></label>`;
+      <label>Угол поворота<input id="field-manip-angle" type="number" value="0" /></label>
+      <label>Расстояние<input id="field-manip-distance" type="number" value="0" /></label>
+      <label>Угол поворота головы<input id="field-manip-head-angle" type="number" value="0" /></label>
+      <label>Поднят / опущен<select id="field-manip-lifted"><option value="0">0</option><option value="1">1</option></select></label>
+      <label>Захват закрыт / открыт<select id="field-manip-gripper"><option value="0">0</option><option value="1">1</option></select></label>`;
       return;
     }
   }
@@ -338,12 +337,11 @@ function addStep(event) {
     const selected = state.manipulators.find((m) => m.id === baseStep.target);
     if (Number(selected?.axes || 5) === 6) {
       payload = {
-        a1: Number(document.getElementById('field-manip-a1').value || 0),
-        a2: Number(document.getElementById('field-manip-a2').value || 0),
-        a3: Number(document.getElementById('field-manip-a3').value || 0),
-        a4: Number(document.getElementById('field-manip-a4').value || 0),
-        a5: Number(document.getElementById('field-manip-a5').value || 0),
-        marker: Number(document.getElementById('field-manip-marker').value || 0)
+        angle: Number(document.getElementById('field-manip-angle').value || 0),
+        distance: Number(document.getElementById('field-manip-distance').value || 0),
+        head_angle: Number(document.getElementById('field-manip-head-angle').value || 0),
+        lifted: Number(document.getElementById('field-manip-lifted').value || 0),
+        gripper: Number(document.getElementById('field-manip-gripper').value || 0)
       };
     } else {
       payload = {
@@ -572,11 +570,9 @@ async function executeStep(step) {
       angle: step.payload.angle,
       distance: step.payload.distance,
       marker: step.payload.marker,
-      a1: step.payload.a1,
-      a2: step.payload.a2,
-      a3: step.payload.a3,
-      a4: step.payload.a4,
-      a5: step.payload.a5,
+      head_angle: step.payload.head_angle,
+      lifted: step.payload.lifted,
+      gripper: step.payload.gripper,
       dummy: 0,
       ...state.manipulatorDefaults,
       manipulator_id: step.target
