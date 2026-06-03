@@ -28,10 +28,20 @@
       </div>
     </header>
 
-<section class="card manipulator-main-card">
+<section class="card manipulator-tabs-card">
+  <h2>Манипуляторы</h2>
+  <div class="buttons manipulator-tabs">
+    <button type="button" class="btn active" data-manip-tab="control">Управление</button>
+    <button type="button" class="btn secondary" data-manip-tab="programs">Программы</button>
+    <button type="button" class="btn secondary" data-manip-tab="zones">Зоны</button>
+    <button type="button" class="btn secondary" data-manip-tab="automation">Автоматизация</button>
+  </div>
+</section>
+
+<section class="card manipulator-main-card" data-manip-panel="control">
   <div class="section-row">
     <h2>Управление манипулятором</h2>
-    <div class="hint">Короткие команды и позиционный пакет</div>
+    <div class="hint">Короткие команды и позиционный пакет p:&lt;angle&gt;:&lt;distance&gt;:&lt;marker&gt;:&lt;gripper&gt;</div>
   </div>
 
       <div class="manipulator-main-grid">
@@ -64,7 +74,7 @@
     </section>
 
 
-    <section class="card manipulator-telemetry-card">
+    <section class="card manipulator-telemetry-card" data-manip-panel="control">
 
   <div class="telemetry-header">
 
@@ -165,7 +175,7 @@
   </div>
 
 </section>
-    <section class="card">
+    <section class="card" data-manip-panel="control">
       <h2>Манипуляторы: добавление / редактирование / удаление</h2>
       <p id="manipulator-result" class="action-result"></p>
       <form id="manipulator-edit-form" class="program-form">
@@ -185,7 +195,45 @@
       </form>
     </section>
 
-    <section class="card">
+    <section class="card" data-manip-panel="zones" hidden>
+      <h2>Зоны манипулятора</h2>
+      <p class="hint">Зона определяется только по последней отправленной p-команде, без телеметрии.</p>
+      <form id="zone-form" class="program-form">
+        <input type="hidden" id="zone-index" value="" />
+        <div class="builder-grid">
+          <label>Название зоны<input id="zone-name" type="text" placeholder="parking" required /></label>
+          <label>Angle от<input id="zone-angle-min" type="number" required /></label>
+          <label>Angle до<input id="zone-angle-max" type="number" required /></label>
+          <label>Distance от<input id="zone-distance-min" type="number" required /></label>
+          <label>Distance до<input id="zone-distance-max" type="number" required /></label>
+        </div>
+        <div class="buttons top-gap">
+          <button type="submit" class="btn">Сохранить</button>
+          <button type="button" class="btn secondary" id="zone-reset">Очистить</button>
+        </div>
+      </form>
+      <div id="zones-list" class="program-list top-gap"></div>
+    </section>
+
+    <section class="card" data-manip-panel="automation" hidden>
+      <h2>Автоматизация</h2>
+      <p class="hint">Если условия правила совпали, лампа получает команду. Повтор одинаковой команды не отправляется.</p>
+      <form id="automation-rule-form" class="program-form">
+        <input type="hidden" id="rule-index" value="" />
+        <div class="builder-grid">
+          <label>Если zone =<input id="rule-zone" type="text" placeholder="work" required /></label>
+          <label>И program_running =<select id="rule-running"><option value="any">Любое</option><option value="true">true</option><option value="false">false</option></select></label>
+          <label>То lamp_command =<select id="rule-command"><option>GREEN</option><option>BLUE</option><option>YELLOW</option><option>RED</option><option>OFF</option></select></label>
+        </div>
+        <div class="buttons top-gap">
+          <button type="submit" class="btn">Сохранить правило</button>
+          <button type="button" class="btn secondary" id="rule-reset">Очистить</button>
+        </div>
+      </form>
+      <div id="rules-list" class="program-list top-gap"></div>
+    </section>
+
+    <section class="card" data-manip-panel="programs" hidden>
       <h2>Связанная программа лампа+манипулятор (JSON)</h2>
       <form id="combo-program-form" class="program-form">
         <label>
