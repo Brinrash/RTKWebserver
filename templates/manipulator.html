@@ -41,7 +41,7 @@
 <section class="card manipulator-main-card" data-manip-panel="control">
   <div class="section-row">
     <h2>Управление манипулятором</h2>
-    <div class="hint">Короткие команды и позиционный пакет p:&lt;angle&gt;:&lt;distance&gt;:&lt;marker&gt;:&lt;gripper&gt;</div>
+    <div class="hint">Для 5 осей пакет p:&lt;angle&gt;:&lt;distance&gt;:&lt;lifted&gt;:0, для 6 осей формат не изменён.</div>
   </div>
 
       <div class="manipulator-main-grid">
@@ -197,28 +197,44 @@
 
     <section class="card" data-manip-panel="zones" hidden>
       <h2>Зоны манипулятора</h2>
-      <p class="hint">Зона определяется только по последней отправленной p-команде, без телеметрии.</p>
-      <form id="zone-form" class="program-form">
-        <input type="hidden" id="zone-index" value="" />
+      <p class="hint">Зоны определяются по реальной телеметрии M1/M2. Первые значения пакета M не используются как координаты.</p>
+      <div class="builder-grid">
+        <div class="status-pill">Current M1: <span id="zones-current-m1">—</span></div>
+        <div class="status-pill">Current M2: <span id="zones-current-m2">—</span></div>
+        <div class="status-pill">Current zone: <span id="zones-current-zone">outside</span></div>
+        <div class="status-pill">Program running: <span id="zones-program-running">false</span></div>
+      </div>
+      <div class="program-form top-gap">
+        <h3>Парковка</h3>
         <div class="builder-grid">
-          <label>Название зоны<input id="zone-name" type="text" placeholder="parking" required /></label>
-          <label>Angle от<input id="zone-angle-min" type="number" required /></label>
-          <label>Angle до<input id="zone-angle-max" type="number" required /></label>
-          <label>Distance от<input id="zone-distance-min" type="number" required /></label>
-          <label>Distance до<input id="zone-distance-max" type="number" required /></label>
+          <label>Tolerance M1<input id="parking-tolerance-m1" type="number" value="50" /></label>
+          <label>Tolerance M2<input id="parking-tolerance-m2" type="number" value="50" /></label>
         </div>
         <div class="buttons top-gap">
-          <button type="submit" class="btn">Сохранить</button>
-          <button type="button" class="btn secondary" id="zone-reset">Очистить</button>
+          <button type="button" class="btn" id="remember-parking">Запомнить парковку</button>
         </div>
-      </form>
+        <h3>Рабочая зона</h3>
+        <div class="buttons top-gap">
+          <button type="button" class="btn secondary" data-remember-work-corner="0">Запомнить угол 1</button>
+          <button type="button" class="btn secondary" data-remember-work-corner="1">Запомнить угол 2</button>
+          <button type="button" class="btn secondary" data-remember-work-corner="2">Запомнить угол 3</button>
+          <button type="button" class="btn secondary" data-remember-work-corner="3">Запомнить угол 4</button>
+        </div>
+      </div>
       <div id="zones-list" class="program-list top-gap"></div>
     </section>
 
     <section class="card" data-manip-panel="automation" hidden>
       <h2>Автоматизация</h2>
-      <p class="hint">Если условия правила совпали, лампа получает команду. Повтор одинаковой команды не отправляется.</p>
-      <form id="automation-rule-form" class="program-form">
+      <p class="hint">Если условия правила совпали, выбранная лампа получает команду. Повтор одинаковой команды не отправляется.</p>
+      <div class="builder-grid top-gap">
+        <label>Лампа для манипулятора<select id="automation-lamp-selector"></select></label>
+        <div class="status-pill">Current M1: <span id="automation-current-m1">—</span></div>
+        <div class="status-pill">Current M2: <span id="automation-current-m2">—</span></div>
+        <div class="status-pill">Current zone: <span id="automation-current-zone">outside</span></div>
+        <div class="status-pill">Program running: <span id="automation-program-running">false</span></div>
+      </div>
+      <form id="automation-rule-form" class="program-form top-gap">
         <input type="hidden" id="rule-index" value="" />
         <div class="builder-grid">
           <label>Если zone =<input id="rule-zone" type="text" placeholder="work" required /></label>
