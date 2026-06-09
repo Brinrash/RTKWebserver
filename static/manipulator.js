@@ -4,17 +4,25 @@ const STORAGE = {
   packetDraft: 'manipulator_packet_draft',
   comboDraft: 'manipulator_combo_json',
   uiTab: 'manipulator_active_tab',
+  workDraft: 'manipulator_work_zone_draft',
 };
 
 const state = {
   socket: null,
   selectedManipulatorId: localStorage.getItem(STORAGE.selectedManipulator) || '',
   manipulators: [],
+  lamps: [],
   zones: [],
   rules: [],
   axes: 5,
+  currentM1: null,
+  currentM2: null,
+  currentZone: 'outside',
+  programRunning: false,
+  lampTarget: localStorage.getItem(STORAGE.selectedLamp) || 'ALL',
   recordTelemetry: true,
   packet: { angle: 180, distance: 220, head_angle: 0, lifted: 0, marker: 1, gripper: 0 },
+  workDraft: [null, null, null, null],
 };
 
 const dom = {
@@ -38,6 +46,7 @@ const dom = {
   axes: document.getElementById('edit-manip-axes'),
   zoneForm: document.getElementById('zone-form'),
   zonesList: document.getElementById('zones-list'),
+  lampSelector: document.getElementById('automation-lamp-selector'),
   ruleForm: document.getElementById('automation-rule-form'),
   rulesList: document.getElementById('rules-list'),
 };
@@ -70,6 +79,10 @@ function appendManipulatorLog(text) {
 
 function renderTelemetry(data) {
   const axes = Number(data.axes || state.axes || 5);
+  const angles = data.angles || [];
+  state.currentM1 = angles.length > 0 ? Number(angles[0]) : state.currentM1;
+  state.currentM2 = angles.length > 1 ? Number(angles[1]) : state.currentM2;
+  renderCurrentStatus();
   for (let i = 1; i <= 6; i += 1) {
     const visible = i <= axes;
     ['a', 't', 'l'].forEach((prefix) => {
@@ -97,6 +110,9 @@ function initSocket() {
     const incomingId = data.id || data.manipulator_id;
     if (!state.selectedManipulatorId || incomingId === state.selectedManipulatorId) renderTelemetry(data);
   });
+  state.socket.on('automation_state', (data) => {
+    if (data.manipulator_id === state.selectedManipulatorId) renderAutomationState(data);
+  });
 }
 
 function getTargetPayload() {
@@ -112,6 +128,10 @@ function loadDrafts() {
     const draft = JSON.parse(localStorage.getItem(STORAGE.packetDraft) || '{}');
     if (draft.packet) state.packet = { ...state.packet, ...draft.packet };
   } catch (error) { console.warn(error); }
+  try {
+    const workDraft = JSON.parse(localStorage.getItem(STORAGE.workDraft) || '[]');
+    if (Array.isArray(workDraft) && workDraft.length === 4) state.workDraft = workDraft;
+  } catch (error) { console.warn(error); }
   const comboDraft = localStorage.getItem(STORAGE.comboDraft);
   if (comboDraft && dom.comboJson) dom.comboJson.value = comboDraft;
 }
@@ -120,14 +140,14 @@ function packetPreviewPayload() {
   if (state.axes === 6) {
     return `g:${state.packet.angle}:${state.packet.distance}:${state.packet.head_angle}:${state.packet.lifted}:${state.packet.gripper}`;
   }
-  return `p:${state.packet.angle}:${state.packet.distance}:${state.packet.marker}:${state.packet.gripper}#`;
+  return `p:${state.packet.angle}:${state.packet.distance}:${state.packet.lifted}:0#`;
 }
 
 function renderPacketFields() {
   if (!dom.packetFields) return;
   const fields = state.axes === 6
     ? [['angle', 'Угол поворота'], ['distance', 'Расстояние'], ['head_angle', 'Угол поворота головы'], ['lifted', 'Поднят / опущен (0/1)'], ['gripper', 'Захват закрыт / открыт (0/1)']]
-    : [['angle', 'Angle'], ['distance', 'Distance'], ['marker', 'Marker'], ['gripper', 'Gripper']];
+    : [['angle', 'Угол поворота'], ['distance', 'Расстояние'], ['lifted', 'Поднят / опущен (0/1)']];
   dom.packetFields.innerHTML = fields.map(([key, label]) => `
     <label>${label}<input data-packet-field="${key}" type="number" value="${state.packet[key] ?? 0}" /></label>
   `).join('');
@@ -153,7 +173,7 @@ async function sendShortCommand(command) {
 async function sendPacket() {
   const body = state.axes === 6
     ? { angle: state.packet.angle, distance: state.packet.distance, head_angle: state.packet.head_angle, lifted: state.packet.lifted, gripper: state.packet.gripper, ...getTargetPayload() }
-    : { angle: state.packet.angle, distance: state.packet.distance, marker: state.packet.marker, gripper: state.packet.gripper, ...getTargetPayload() };
+    : { angle: state.packet.angle, distance: state.packet.distance, lifted: state.packet.lifted, ...getTargetPayload() };
   const response = await apiRequest('/api/manipulator/packet', { method: 'POST', body });
   setResult(`Позиционная команда отправлена: ${response.payload}`);
 }
@@ -193,7 +213,7 @@ async function onManipulatorSelect(options = {}) {
   }
   if (dom.targetPill) dom.targetPill.textContent = `${manip.name} • ${manip.host}:${manip.command_port} • ${state.axes} осей`;
   renderPacketFields();
-  await Promise.all([loadZones(), loadRules()]);
+  await Promise.all([loadZones(), loadRules(), loadAutomationState(), loadLamps()]);
 }
 
 function updateTargetPillFromInventory() {
@@ -216,14 +236,105 @@ async function saveZones() {
   setResult('Зоны сохранены');
 }
 
+async function loadAutomationState() {
+  if (!state.selectedManipulatorId) return;
+  const payload = await apiRequest(`/api/automation/state/${encodeURIComponent(state.selectedManipulatorId)}`);
+  renderAutomationState(payload);
+}
+
+function renderAutomationState(data) {
+  state.currentM1 = data.current_m1 ?? state.currentM1;
+  state.currentM2 = data.current_m2 ?? state.currentM2;
+  state.currentZone = data.current_zone || 'outside';
+  state.programRunning = Boolean(data.program_running);
+  state.lampTarget = data.lamp_target || state.lampTarget || 'ALL';
+  localStorage.setItem(STORAGE.selectedLamp, state.lampTarget);
+  renderCurrentStatus();
+  renderLampSelector();
+}
+
+function renderCurrentStatus() {
+  const pairs = [
+    ['current-m1', state.currentM1 ?? '—'],
+    ['current-m2', state.currentM2 ?? '—'],
+    ['current-zone', state.currentZone],
+    ['program-running', String(state.programRunning)],
+    ['zones-current-m1', state.currentM1 ?? '—'],
+    ['zones-current-m2', state.currentM2 ?? '—'],
+    ['zones-current-zone', state.currentZone],
+    ['zones-program-running', String(state.programRunning)],
+    ['automation-current-m1', state.currentM1 ?? '—'],
+    ['automation-current-m2', state.currentM2 ?? '—'],
+    ['automation-current-zone', state.currentZone],
+    ['automation-program-running', String(state.programRunning)],
+  ];
+  pairs.forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  });
+}
+
+function currentTelemetryPoint() {
+  if (state.currentM1 === null || state.currentM2 === null || Number.isNaN(state.currentM1) || Number.isNaN(state.currentM2)) {
+    throw new Error('Нет текущей телеметрии M1/M2');
+  }
+  return [Number(state.currentM1), Number(state.currentM2)];
+}
+
+function parkingZone() {
+  return state.zones.find((zone) => zone.name === 'parking' && zone.type === 'point');
+}
+
+function workZone() {
+  return state.zones.find((zone) => zone.name === 'work' && zone.type === 'polygon');
+}
+
+function upsertZone(zone) {
+  const index = state.zones.findIndex((item) => item.name === zone.name);
+  if (index === -1) state.zones.push(zone); else state.zones[index] = zone;
+}
+
+async function loadLamps() {
+  const payload = await apiRequest('/api/lamps');
+  state.lamps = payload.lamps || [];
+  renderLampSelector();
+}
+
+function renderLampSelector() {
+  if (!dom.lampSelector) return;
+  const options = [{ name: 'ALL' }, ...state.lamps];
+  dom.lampSelector.innerHTML = options.map((lamp) => `<option value="${lamp.name}">${lamp.name}</option>`).join('');
+  dom.lampSelector.value = state.lampTarget || 'ALL';
+}
+
+async function saveLampTarget() {
+  if (!state.selectedManipulatorId || !dom.lampSelector) return;
+  state.lampTarget = dom.lampSelector.value || 'ALL';
+  localStorage.setItem(STORAGE.selectedLamp, state.lampTarget);
+  await apiRequest(`/api/automation/lamp-target/${encodeURIComponent(state.selectedManipulatorId)}`, { method: 'POST', body: { lamp_target: state.lampTarget } });
+  setResult(`Лампа для манипулятора: ${state.lampTarget}`);
+}
+
 function renderZones() {
   if (!dom.zonesList) return;
-  dom.zonesList.innerHTML = state.zones.map((zone, index) => `
-    <div class="program-item">
-      <div><strong>${zone.name}</strong><br><span class="hint">angle ${zone.angle_min}…${zone.angle_max}, distance ${zone.distance_min}…${zone.distance_max}</span></div>
-      <div class="buttons"><button class="btn secondary" data-zone-edit="${index}">Редактировать</button><button class="btn off" data-zone-delete="${index}">Удалить</button></div>
-    </div>
-  `).join('') || '<p class="hint">Зоны пока не созданы.</p>';
+  const parking = parkingZone();
+  const work = workZone();
+  if (work?.points?.length === 4) state.workDraft = work.points.map((point) => [...point]);
+  const parkingToleranceM1 = document.getElementById('parking-tolerance-m1');
+  const parkingToleranceM2 = document.getElementById('parking-tolerance-m2');
+  if (parking && parkingToleranceM1) parkingToleranceM1.value = parking.tolerance_m1 ?? 50;
+  if (parking && parkingToleranceM2) parkingToleranceM2.value = parking.tolerance_m2 ?? 50;
+  const parkingText = parking
+    ? `M1=${parking.m1}, M2=${parking.m2}, tolerance=±${parking.tolerance_m1}/${parking.tolerance_m2}`
+    : 'Парковка не сохранена';
+  const draftText = state.workDraft
+    .map((point, index) => `Угол ${index + 1}: ${point ? `[${point[0]}, ${point[1]}]` : 'не задан'}`)
+    .join('<br>');
+  const workText = work ? draftText : `Рабочая зона не сохранена<br>${draftText}`;
+  dom.zonesList.innerHTML = `
+    <div class="program-item"><div><strong>parking</strong><br><span class="hint">${parkingText}</span></div><div class="buttons"><button class="btn off" data-zone-delete-name="parking">Удалить</button></div></div>
+    <div class="program-item"><div><strong>work</strong><br><span class="hint">${workText}</span></div><div class="buttons"><button class="btn off" data-zone-delete-name="work">Удалить</button></div></div>
+  `;
 }
 
 async function loadRules() {
@@ -301,29 +412,55 @@ function editPayload() {
 }
 
 function bindZonesAndRules() {
-  dom.zoneForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const index = document.getElementById('zone-index').value;
-    const zone = { name: document.getElementById('zone-name').value.trim(), angle_min: Number(document.getElementById('zone-angle-min').value), angle_max: Number(document.getElementById('zone-angle-max').value), distance_min: Number(document.getElementById('zone-distance-min').value), distance_max: Number(document.getElementById('zone-distance-max').value) };
-    if (index === '') state.zones.push(zone); else state.zones[Number(index)] = zone;
-    document.getElementById('zone-index').value = '';
-    dom.zoneForm.reset();
-    await saveZones();
+  document.getElementById('remember-parking')?.addEventListener('click', async () => {
+    try {
+      const [m1, m2] = currentTelemetryPoint();
+      upsertZone({
+        name: 'parking',
+        type: 'point',
+        m1,
+        m2,
+        tolerance_m1: Number(document.getElementById('parking-tolerance-m1')?.value || 50),
+        tolerance_m2: Number(document.getElementById('parking-tolerance-m2')?.value || 50),
+      });
+      await saveZones();
+      setResult(`Парковка сохранена: M1=${m1}, M2=${m2}`);
+    } catch (error) { setResult(error.message, true); }
   });
-  document.getElementById('zone-reset')?.addEventListener('click', () => { document.getElementById('zone-index').value = ''; dom.zoneForm.reset(); });
+
+  document.querySelectorAll('[data-remember-work-corner]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        const [m1, m2] = currentTelemetryPoint();
+        const index = Number(button.dataset.rememberWorkCorner);
+        state.workDraft[index] = [m1, m2];
+        localStorage.setItem(STORAGE.workDraft, JSON.stringify(state.workDraft));
+        if (state.workDraft.every(Boolean)) {
+          upsertZone({ name: 'work', type: 'polygon', points: state.workDraft.map((point) => [...point]) });
+          await saveZones();
+          setResult(`Рабочая зона создана. Угол ${index + 1}: M1=${m1}, M2=${m2}`);
+        } else {
+          renderZones();
+          setResult(`Угол ${index + 1} сохранён локально: M1=${m1}, M2=${m2}`);
+        }
+      } catch (error) { setResult(error.message, true); }
+    });
+  });
+
   dom.zonesList?.addEventListener('click', async (event) => {
-    const edit = event.target.closest('[data-zone-edit]');
-    const del = event.target.closest('[data-zone-delete]');
-    if (edit) {
-      const index = Number(edit.dataset.zoneEdit); const zone = state.zones[index];
-      document.getElementById('zone-index').value = index;
-      document.getElementById('zone-name').value = zone.name;
-      document.getElementById('zone-angle-min').value = zone.angle_min;
-      document.getElementById('zone-angle-max').value = zone.angle_max;
-      document.getElementById('zone-distance-min').value = zone.distance_min;
-      document.getElementById('zone-distance-max').value = zone.distance_max;
+    const del = event.target.closest('[data-zone-delete-name]');
+    if (del) {
+      state.zones = state.zones.filter((zone) => zone.name !== del.dataset.zoneDeleteName);
+      if (del.dataset.zoneDeleteName === 'work') {
+        state.workDraft = [null, null, null, null];
+        localStorage.setItem(STORAGE.workDraft, JSON.stringify(state.workDraft));
+      }
+      await saveZones();
     }
-    if (del) { state.zones.splice(Number(del.dataset.zoneDelete), 1); await saveZones(); }
+  });
+
+  dom.lampSelector?.addEventListener('change', async () => {
+    try { await saveLampTarget(); } catch (error) { setResult(error.message, true); }
   });
 
   dom.ruleForm?.addEventListener('submit', async (event) => {
