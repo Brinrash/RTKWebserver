@@ -100,7 +100,7 @@ class ManipulatorController:
         try:
             normalized_marker = int(marker)
         except (TypeError, ValueError) as error:
-            raise ValueError("Маркер должен быть 0 или 1") from error
+            raise ValueError("Подъём должен быть 0 или 1") from error
 
         if not MANIPULATOR_MIN_ROT <= normalized_angle <= MANIPULATOR_MAX_ROT:
             raise ValueError(
@@ -111,7 +111,7 @@ class ManipulatorController:
                 f"Расстояние должно быть в диапазоне {MANIPULATOR_MIN_DIST}-{MANIPULATOR_MAX_DIST}"
             )
         if normalized_marker not in {0, 1}:
-            raise ValueError("Маркер должен быть 0 или 1")
+            raise ValueError("Подъём должен быть 0 или 1")
 
         try:
             normalized_dummy = int(dummy)
