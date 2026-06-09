@@ -323,7 +323,24 @@ system.start()
 def _emit_ws(event: str, payload: dict[str, object]) -> None:
     socketio.start_background_task(socketio.emit, event, payload)
 
-manipulator_manager = ManipulatorManager(logger=logger, emit=_emit_ws)
+def _emit_automation_state(manipulator_id: str) -> None:
+    _emit_ws("automation_state", {"manipulator_id": manipulator_id, **system.automation.get_state(manipulator_id)})
+
+
+def _handle_manipulator_state_update(snapshot: dict[str, object]) -> None:
+    manipulator_id = str(snapshot.get("id") or snapshot.get("manipulator_id") or "")
+    angles = snapshot.get("angles") if isinstance(snapshot.get("angles"), list) else []
+    current_m1 = int(angles[0]) if len(angles) > 0 else None
+    current_m2 = int(angles[1]) if len(angles) > 1 else None
+    automation_state = system.automation.set_telemetry(manipulator_id, m1=current_m1, m2=current_m2)
+    _emit_ws("automation_state", {"manipulator_id": manipulator_id, **automation_state})
+
+
+manipulator_manager = ManipulatorManager(
+    logger=logger,
+    emit=_emit_ws,
+    on_state_update=_handle_manipulator_state_update,
+)
 manipulator_manager.start()
 
 
@@ -339,30 +356,6 @@ def _resolve_manipulator_target(payload: dict[str, object]) -> dict[str, object]
         "axes": int(item.get("axes", 5)),
     }
 
-
-def _remember_payload_position(manipulator_id: str, payload: str) -> None:
-    raw = payload.strip().removesuffix("#")
-    parts = raw.split(":")
-    if len(parts) >= 5 and parts[0] == "p":
-        system.automation.set_last_position(
-            manipulator_id,
-            {
-                "angle": int(parts[1]),
-                "distance": int(parts[2]),
-                "marker": int(parts[3]) if len(parts) == 5 else int(parts[-1]),
-                "gripper": int(parts[4]) if len(parts) == 5 else 0,
-            },
-        )
-    elif len(parts) == 6 and parts[0] == "g":
-        system.automation.set_last_position(
-            manipulator_id,
-            {
-                "angle": int(parts[1]),
-                "distance": int(parts[2]),
-                "marker": int(parts[4]),
-                "gripper": int(parts[5]),
-            },
-        )
 
 try:
     manipulator_manager.create(
@@ -531,28 +524,15 @@ def api_manipulator_packet():
             port=target["port"],
             protocol=target["protocol"],
         )
-        system.automation.set_last_position(
-            str(target["id"]),
-            {"angle": angle, "distance": distance, "marker": lifted, "gripper": gripper},
-        )
     else:
         result = manipulator.send_packet(
             angle=payload.get("angle"),
             distance=payload.get("distance"),
-            marker=payload.get("marker"),
-            dummy=payload.get("gripper", payload.get("dummy", 0)),
+            marker=payload.get("lifted", payload.get("marker", 0)),
+            dummy=0,
             host=target["host"],
             port=target["port"],
             protocol=target["protocol"],
-        )
-        system.automation.set_last_position(
-            str(target["id"]),
-            {
-                "angle": int(payload.get("angle")),
-                "distance": int(payload.get("distance")),
-                "marker": int(payload.get("marker")),
-                "gripper": int(payload.get("gripper", payload.get("dummy", 0))),
-            },
         )
     return jsonify({"ok": True, **result})
 
@@ -636,6 +616,7 @@ def api_run_combined_program():
         raise ValueError("program должен быть непустым JSON-массивом")
 
     system.automation.set_program_running(str(manipulator_target["id"]), True)
+    _emit_automation_state(str(manipulator_target["id"]))
     try:
         steps_to_run = program
         for step in steps_to_run:
@@ -649,16 +630,57 @@ def api_run_combined_program():
                 if command:
                     system.send_command(lamp, command)
             elif step_type == "manipulator":
-                if "payload" in step:
+
+                    # Новый формат
+                if "packet" in step:
+
+                    packet = step.get("packet", {})
+
+                    if not isinstance(packet, dict):
+                        raise ValueError("packet должен быть объектом")
+
+                    if manipulator_target["axes"] == 6:
+
+                        angle = int(packet.get("angle", 0))
+                        distance = int(packet.get("distance", 0))
+                        head_angle = int(packet.get("head_angle", 0))
+                        lifted = int(packet.get("lifted", 0))
+                        gripper = int(packet.get("gripper", 0))
+
+                        manipulator.send_payload(
+                            f"g:{angle}:{distance}:{head_angle}:{lifted}:{gripper}",
+                            host=manipulator_target["host"],
+                            port=manipulator_target["port"],
+                            protocol=manipulator_target["protocol"],
+                        )
+
+                    else:
+
+                        manipulator.send_packet(
+                            angle=packet.get("angle", 0),
+                            distance=packet.get("distance", 0),
+                            marker=packet.get("lifted", 0),
+                            dummy=0,
+                            host=manipulator_target["host"],
+                            port=manipulator_target["port"],
+                            protocol=manipulator_target["protocol"],
+                            )
+
+                # Старый формат payload оставить для совместимости
+                elif "payload" in step:
+
                     raw_payload = str(step.get("payload", ""))
-                    result = manipulator.send_payload(
+
+                    manipulator.send_payload(
                         raw_payload,
                         host=manipulator_target["host"],
                         port=manipulator_target["port"],
                         protocol=manipulator_target["protocol"],
                     )
-                    _remember_payload_position(str(manipulator_target["id"]), raw_payload)
+
+                # Старые короткие команды оставить для совместимости
                 elif "command" in step:
+
                     manipulator.send_short_command(
                         str(step.get("command", "")),
                         host=manipulator_target["host"],
@@ -669,6 +691,7 @@ def api_run_combined_program():
                 socketio.sleep(delay)
     finally:
         system.automation.set_program_running(str(manipulator_target["id"]), False)
+        _emit_automation_state(str(manipulator_target["id"]))
 
     return jsonify({"ok": True})
 
@@ -683,6 +706,18 @@ def api_set_manipulator_zones(manipulator_id: str):
     payload = request.get_json(force=True, silent=False) or {}
     zones = payload.get("zones", payload if isinstance(payload, list) else [])
     return jsonify({"ok": True, "manipulator_id": manipulator_id, "zones": system.automation.set_zones(manipulator_id, zones)})
+
+
+@app.get("/api/automation/state/<manipulator_id>")
+def api_get_automation_state(manipulator_id: str):
+    return jsonify({"manipulator_id": manipulator_id, **system.automation.get_state(manipulator_id)})
+
+
+@app.post("/api/automation/lamp-target/<manipulator_id>")
+def api_set_automation_lamp_target(manipulator_id: str):
+    payload = request.get_json(force=True, silent=False) or {}
+    lamp_target = str(payload.get("lamp_target", payload.get("lamp", "ALL")))
+    return jsonify({"ok": True, "manipulator_id": manipulator_id, **system.automation.set_lamp_target(manipulator_id, lamp_target)})
 
 
 @app.get("/api/automation/rules")
@@ -702,7 +737,27 @@ def api_stop_combined_program():
     payload = request.get_json(force=True, silent=True) or {}
     target = _resolve_manipulator_target(payload)
     system.automation.set_program_running(str(target["id"]), False)
+    _emit_automation_state(str(target["id"]))
     return jsonify({"ok": True})
+
+@app.post("/api/logs/record/<mode>")
+def api_toggle_record(mode: str):
+
+    if mode.lower() == "on":
+        logger.recording_enabled = True
+
+    elif mode.lower() == "off":
+        logger.recording_enabled = False
+
+    else:
+        return jsonify(
+            {"error": "mode должен быть on/off"}
+        ), 400
+
+    return jsonify({
+        "ok": True,
+        "recording": logger.recording_enabled
+    })
 
 @app.post("/api/logs/debug/<mode>")
 def api_toggle_debug(mode: str):
