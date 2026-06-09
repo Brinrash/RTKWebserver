@@ -35,11 +35,13 @@ class ManipulatorManager:
     def __init__(
         self,
         logger: EventLogger,
-        emit: Callable[[str, dict[str, object]], None]
+        emit: Callable[[str, dict[str, object]], None],
+        on_state_update: Callable[[dict[str, object]], None] | None = None
     ) -> None:
 
         self._logger = logger
         self._emit = emit
+        self._on_state_update = on_state_update
 
         self._lock = threading.Lock()
 
@@ -525,8 +527,8 @@ class ManipulatorManager:
                 self._check_stale(now)
 
                 return
-
-            manipulator_logger.info(payload)
+            if self._logger.recording_enabled:
+                manipulator_logger.info(payload)
 
             self._logger.debug(
                 f"Manipulator UDP payload: {payload}"
@@ -570,7 +572,34 @@ class ManipulatorManager:
                     continue
 
                 values = []
-                self._logger.info(
+
+                payload_start = 3
+
+                if kind.startswith("T") or kind.startswith("L"):
+                    payload_start = 2
+
+                for value in parts[payload_start:]:
+
+                    try:
+
+                        value = (
+                            str(value)
+                            .replace("#", "")
+                            .strip()
+                        )
+
+                        if value == "":
+                            continue
+
+                        values.append(
+                            int(float(value))
+                        )
+
+                    except Exception:
+
+                        continue
+
+                self._logger.debug(
                     f"KIND={kind} VALUES={values}"
                 )
 
@@ -637,19 +666,23 @@ class ManipulatorManager:
                         state
                     )
 
-                self._emit(
-                    "manipulator_log",
-                    {
-                        "manipulator_id": target_id,
-                        "packet": raw_packet,
-                        "source_ip": source_ip,
-                        "timestamp": now
-                    }
-                )
+                if self._logger.recording_enabled:
+                    self._emit(
+                        "manipulator_log",
+                        {
+                            "manipulator_id": target_id,
+                            "packet": raw_packet,
+                            "source_ip": source_ip,
+                            "timestamp": now
+                        }
+                    )
 
                 # IMPORTANT:
                 # emit after EVERY packet
                 # otherwise temp/load never refresh realtime
+
+                if self._on_state_update:
+                    self._on_state_update(snapshot)
 
                 self._emit(
                     "manipulator_state",
