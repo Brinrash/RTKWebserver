@@ -21,6 +21,7 @@ class EventLogger:
         self._lock = Lock()
         self._buffer: Deque[str] = deque(maxlen=max_buffer_lines)
         self.debug_enabled = False
+        self.recording_enabled = True
         self._callback = None
 
 
@@ -40,16 +41,27 @@ class EventLogger:
 
     def log(self, level: str, message: str) -> str:
         level = level.upper()
+
+        if (
+                not self.recording_enabled
+                and level != "ERROR"
+        ):
+            return ""
+
         if level not in self._paths:
             raise ValueError(f"Unsupported log level: {level}")
 
         line = self._format(level, message)
+
         with self._lock:
-            with self._paths[level].open("a", encoding="utf-8") as handle:
+            with self._paths[level].open(mode="a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
+
             self._buffer.append(line)
+
             if self._callback:
                 self._callback(line)
+
         return line
 
 
